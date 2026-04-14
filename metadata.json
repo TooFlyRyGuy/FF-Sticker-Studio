@@ -1,0 +1,5 @@
+{
+  "name": "Prompt Studio",
+  "description": "Professional image editing and style transfer application using Gemini 3 Pro by Fun Frame Photo. Upload, resize, prompt, and generate high-fidelity results with advanced prompt management.",
+  "requestFramePermissions": []
+}

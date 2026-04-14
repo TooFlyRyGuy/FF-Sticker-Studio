@@ -1,0 +1,64 @@
+/**
+ * Converts a File object to a Base64 string.
+ */
+export const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error('Failed to convert file to base64'));
+      }
+    };
+    reader.onerror = (error) => reject(error);
+  });
+};
+
+/**
+ * Strips the Data URL prefix (e.g., "data:image/png;base64,") to get raw base64.
+ */
+export const stripBase64Prefix = (dataUrl: string): string => {
+  return dataUrl.split(',')[1] || dataUrl;
+};
+
+/**
+ * Gets the mime type from a base64 string or filename.
+ */
+export const getMimeType = (file: File): string => {
+  return file.type || 'image/png';
+};
+
+/**
+ * Validates an image file for supported types and size limits.
+ */
+export const validateImageFile = (file: File): string | null => {
+  const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
+  const maxSize = 10 * 1024 * 1024; // 10MB limit
+
+  if (!validTypes.includes(file.type)) {
+    return 'Unsupported file format. Please use JPG, PNG, WEBP, or HEIC.';
+  }
+
+  if (file.size > maxSize) {
+    return 'File size exceeds 10MB limit.';
+  }
+
+  return null;
+};
+
+/**
+ * Converts a Base64 string to a Blob.
+ */
+export const base64ToBlob = (base64: string, mimeType: string): Blob => {
+  // Strip prefix if present
+  const content = base64.includes(',') ? base64.split(',')[1] : base64;
+  const byteCharacters = atob(content);
+  const byteNumbers = new Array(byteCharacters.length);
+  for (let i = 0; i < byteCharacters.length; i++) {
+    byteNumbers[i] = byteCharacters.charCodeAt(i);
+  }
+  const byteArray = new Uint8Array(byteNumbers);
+  return new Blob([byteArray], { type: mimeType });
+};
