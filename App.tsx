@@ -4,12 +4,12 @@ import Button from './components/Button';
 import NotificationContainer from './components/NotificationToast';
 import ImageUpload from './components/ImageUpload';
 import PromptLibrary from './components/PromptLibrary';
-import SavePromptModal from './components/SavePromptModal';
+
 import PromptAssistant from './components/PromptAssistant';
 import { stripBase64Prefix, getMimeType } from './utils/imageUtils';
-import { generateEditedImage, promptForApiKey } from './services/geminiService';
-import { savePrompt, initStorage } from './services/storageService';
-import { AspectRatio, ImageSize, ModelType, ProcessingState, NotificationItem, NotificationType, SavedPrompt } from './types';
+import { generateEditedImage, promptForApiKey, generatePromptMetadata } from './services/geminiService';
+import { savePrompt, initStorage, getFolders } from './services/storageService';
+import { AspectRatio, ImageSize, ModelType, ProcessingState, NotificationItem, NotificationType, SavedPrompt, Folder } from './types';
 
 const App: React.FC = () => {
   const [initialCheckDone, setInitialCheckDone] = useState(false);
@@ -32,12 +32,19 @@ const App: React.FC = () => {
 
   // Saved Prompts Management
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
-  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [activePromptId, setActivePromptId] = useState<string | null>(null);
-  const [activePromptTitle, setActivePromptTitle] = useState<string>("");
-  const [activePromptFolder, setActivePromptFolder] = useState<string>("root");
+  const [activePromptName, setActivePromptName] = useState<string>("");
+  const [activePromptCategory, setActivePromptCategory] = useState<string>("");
+  const [isNewCategory, setIsNewCategory] = useState<boolean>(true);
+  const [activePromptDescription, setActivePromptDescription] = useState<string>("");
+  const [activePromptTags, setActivePromptTags] = useState<string>("");
+  const [activePromptIsPublic, setActivePromptIsPublic] = useState<boolean>(true);
+  const [activePromptPreviewUrl, setActivePromptPreviewUrl] = useState<string | null>(null);
   
+  const [categories, setCategories] = useState<Folder[]>([]);
+
   // Processing State
   const [status, setStatus] = useState<ProcessingState>({
     isLoading: false,
@@ -62,6 +69,8 @@ const App: React.FC = () => {
     const init = async () => {
       try {
         await initStorage();
+        const loadedFolders = await getFolders();
+        setCategories(loadedFolders);
       } catch (e) {
         console.error("Error checking initialization:", e);
       } finally {
@@ -102,78 +111,106 @@ const App: React.FC = () => {
   };
 
   const handleSelectPrompt = (savedPrompt: SavedPrompt) => {
-    setPrompt(savedPrompt.content);
+    setPrompt(savedPrompt.prompt_text);
     setActivePromptId(savedPrompt.id);
-    setActivePromptTitle(savedPrompt.title);
-    setActivePromptFolder(savedPrompt.folderId);
+    setActivePromptName(savedPrompt.name);
+    const cat = savedPrompt.category && savedPrompt.category !== 'root' ? savedPrompt.category : "";
+    setActivePromptCategory(cat);
+    setIsNewCategory(!cat);
+    setActivePromptDescription(savedPrompt.description || "");
+    setActivePromptTags((savedPrompt.tags || []).join(", "));
+    setActivePromptIsPublic(savedPrompt.is_public ?? true);
+    setActivePromptPreviewUrl(savedPrompt.preview_image_url || null);
+    setGeneratedImage(null); // Clear previously generated image when exploring newly loaded prompts
     setIsLibraryOpen(false);
-    addNotification('success', `Loaded "${savedPrompt.title}"`);
+    addNotification('success', `Loaded "${savedPrompt.name}"`);
   };
 
-  const handleSaveClick = () => {
+  const handleSaveClick = async () => {
     if (!prompt.trim()) {
       addNotification('error', "Cannot save an empty prompt.");
       return;
     }
-    setIsSaveModalOpen(true);
-  };
-
-  const handleSaveAsNewClick = () => {
-    if (!prompt.trim()) {
-      addNotification('error', "Cannot save an empty prompt.");
+    if (!activePromptName.trim() || !activePromptDescription.trim() || !activePromptCategory.trim()) {
+      addNotification('error', "Name, Description, and Category are required to save.");
       return;
     }
-    setActivePromptId(null);
-    setActivePromptTitle("");
-    setIsSaveModalOpen(true);
-  };
 
-  const handleConfirmSave = async (title: string, folderId: string) => {
+    const previewImage = generatedImage || activePromptPreviewUrl || null;
+
     try {
+      const promptData: Partial<SavedPrompt> = {
+        name: activePromptName,
+        prompt_text: prompt,
+        description: activePromptDescription,
+        tags: activePromptTags.split(',').map(tag => tag.trim()).filter(t => t),
+        category: activePromptCategory,
+        is_public: activePromptIsPublic,
+        preview_image_url: previewImage,
+        user_id: !activePromptIsPublic ? "274f2dd5-9843-4518-872d-88c2e0f225f5" : null
+      };
+
       if (activePromptId) {
         await savePrompt({
           id: activePromptId,
-          title,
-          content: prompt,
-          folderId
+          ...promptData
         });
-        addNotification('success', `Updated "${title}"`);
+        addNotification('success', `Updated "${activePromptName}"`);
       } else {
-        const newPrompt = await savePrompt({
-          title,
-          content: prompt,
-          folderId
-        });
+        const newPrompt = await savePrompt(promptData);
         setActivePromptId(newPrompt.id);
-        addNotification('success', `Saved "${title}"`);
+        addNotification('success', `Saved "${activePromptName}"`);
       }
-      setActivePromptTitle(title);
-      setActivePromptFolder(folderId);
-      setIsSaveModalOpen(false);
+      
+      // Update categories if new
+      if (promptData.category && !categories.find(c => c.name === promptData.category)) {
+        setCategories(prev => [...prev, { id: promptData.category!, name: promptData.category! }]);
+      }
+
+      setActivePromptPreviewUrl(previewImage);
     } catch (e: any) {
       console.error(e);
       addNotification('error', `Failed to save prompt: ${e.message || 'Unknown error'}`);
     }
   };
 
+  const handleSaveAsNewClick = async () => {
+    if (!prompt.trim()) {
+      addNotification('error', "Cannot save an empty prompt.");
+      return;
+    }
+    
+    // We update the name slightly if it was a copy, but they should be able to edit it.
+    // If they hit Save As New, maybe we just set activePromptId = null and let them hit Save, OR we do the save here immediately.
+    // Since the form is inline, "Save New" could just copy to a new record.
+    setActivePromptId(null);
+    const newName = activePromptName ? `${activePromptName} (Copy)` : "New Prompt";
+    setActivePromptName(newName);
+    
+    // Wait for the user to be ready to save? Or save immediately? 
+    // They asked "REQUIRE Name, Description and visibility fields when saving prompts."
+    // If we just clear the ID and rename, they can review and hit Save.
+    addNotification('info', `Ready to save as "${newName}". Review and click Save.`);
+  };
+
   const handleGenerate = async () => {
-    if (!sourceImage || !sourceFile || !prompt) {
-      addNotification('error', "Please upload a source image and enter a prompt.");
+    if (!prompt) {
+      addNotification('error', "Please enter a prompt to generate an image.");
       return;
     }
 
     setStatus({ isLoading: true, error: null, progress: 'Generating...' });
 
     try {
-      const rawBase64 = stripBase64Prefix(sourceImage);
-      const mimeType = getMimeType(sourceFile);
+      const rawBase64 = sourceImage ? stripBase64Prefix(sourceImage) : undefined;
+      const mimeType = sourceFile ? getMimeType(sourceFile) : undefined;
       
       const refRawBase64 = referenceImage ? stripBase64Prefix(referenceImage) : undefined;
       const refMimeType = referenceFile ? getMimeType(referenceFile) : undefined;
 
       const resultImage = await generateEditedImage({
         imageBase64: rawBase64,
-        mimeType,
+        mimeType: mimeType,
         referenceImageBase64: refRawBase64,
         referenceMimeType: refMimeType,
         refStrength: referenceImage ? refStrength : undefined,
@@ -184,6 +221,15 @@ const App: React.FC = () => {
       });
 
       setGeneratedImage(resultImage);
+      
+      if (!activePromptName || !activePromptDescription) {
+        setStatus({ isLoading: true, error: null, progress: 'Generating suggested metadata...' });
+        const metadata = await generatePromptMetadata(prompt);
+        if (metadata.name && !activePromptName) setActivePromptName(metadata.name);
+        if (metadata.description && !activePromptDescription) setActivePromptDescription(metadata.description);
+        if (metadata.tags.length > 0 && !activePromptTags) setActivePromptTags(metadata.tags.join(', '));
+      }
+
       setStatus({ isLoading: false, error: null, progress: 'Complete' });
       addNotification('success', 'Image generated successfully!');
     } catch (error: any) {
@@ -234,13 +280,7 @@ const App: React.FC = () => {
         onSelectPrompt={handleSelectPrompt} 
       />
 
-      <SavePromptModal 
-        isOpen={isSaveModalOpen}
-        onClose={() => setIsSaveModalOpen(false)}
-        onSave={handleConfirmSave}
-        initialTitle={activePromptTitle}
-        initialFolderId={activePromptFolder}
-      />
+
 
       <PromptAssistant
         isOpen={isAssistantOpen}
@@ -357,7 +397,7 @@ const App: React.FC = () => {
                     Prompt
                     {activePromptId && (
                       <span className="ml-2 text-[10px] text-app-accent bg-app-accent/10 px-2 py-0.5 rounded border border-app-accent/20">
-                        Editing: {activePromptTitle}
+                        Editing: {activePromptName}
                       </span>
                     )}
                   </label>
@@ -365,8 +405,9 @@ const App: React.FC = () => {
                     <button
                         onClick={() => setIsAssistantOpen(true)}
                         className="text-[10px] uppercase tracking-wider font-bold bg-app-accent hover:bg-app-accentHover text-white px-3 py-1.5 rounded flex items-center gap-1 shadow-md shadow-app-accent/20 transition-colors"
+                        title="AI Prompt Assistant"
                     >
-                        Magic
+                        ✨ Prompt Assistant
                     </button>
                     <button 
                       onClick={() => setIsLibraryOpen(true)}
@@ -374,20 +415,6 @@ const App: React.FC = () => {
                     >
                       Library
                     </button>
-                    <button 
-                      onClick={handleSaveClick}
-                      className="text-[10px] uppercase tracking-wider font-bold bg-app-border hover:bg-app-border/80 text-app-text px-3 py-1.5 rounded border border-app-border transition-colors"
-                    >
-                      {activePromptId ? 'Save' : 'Save...'}
-                    </button>
-                    {activePromptId && (
-                      <button 
-                        onClick={handleSaveAsNewClick}
-                        className="text-[10px] uppercase tracking-wider font-bold bg-app-border hover:bg-app-border/80 text-app-text px-3 py-1.5 rounded border border-app-border transition-colors"
-                      >
-                        Save New
-                      </button>
-                    )}
                   </div>
                 </div>
                 <textarea
@@ -401,7 +428,7 @@ const App: React.FC = () => {
               <Button 
                 onClick={handleGenerate} 
                 isLoading={status.isLoading}
-                disabled={!sourceImage || !prompt}
+                disabled={!prompt}
                 className="w-full bg-app-accent hover:bg-app-accentHover text-white font-semibold tracking-wide uppercase text-sm rounded-lg py-3 transition-colors"
               >
                 {status.isLoading ? 'Generating...' : 'Generate Image'}
@@ -440,14 +467,117 @@ const App: React.FC = () => {
                 )}
               </div>
 
-              <div className="mt-6 flex justify-end gap-3">
-                <Button 
-                  onClick={handleDownload} 
-                  disabled={!generatedImage || status.isLoading}
-                  variant="secondary"
-                >
-                  Download Result
-                </Button>
+              <div className="mt-6 flex flex-col gap-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-mono uppercase tracking-wider text-app-muted mb-1">Name <span className="text-red-400">*</span></label>
+                    <input 
+                      type="text" 
+                      value={activePromptName} 
+                      onChange={(e) => setActivePromptName(e.target.value)}
+                      placeholder="e.g., Cyberpunk Cityscape"
+                      className="w-full bg-app-bg border border-app-border rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-mono uppercase tracking-wider text-app-muted mb-1">Category <span className="text-red-400">*</span></label>
+                    <div className="flex gap-2">
+                      <select
+                        value={isNewCategory ? "_new_" : activePromptCategory}
+                        onChange={(e) => {
+                          if (e.target.value === "_new_") {
+                            setIsNewCategory(true);
+                            setActivePromptCategory("");
+                          } else {
+                            setIsNewCategory(false);
+                            setActivePromptCategory(e.target.value);
+                          }
+                        }}
+                        className={`bg-app-bg border border-app-border rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-sm ${isNewCategory ? 'w-[140px]' : 'w-full'}`}
+                      >
+                       <option value="_new_">+ Create New...</option>
+                       {activePromptCategory && !categories.find(c => c.name === activePromptCategory) && !isNewCategory && (
+                          <option value={activePromptCategory}>{activePromptCategory}</option>
+                       )}
+                       {categories.map(c => (
+                         <option key={c.id} value={c.name}>{c.name}</option>
+                       ))}
+                      </select>
+                      
+                      {isNewCategory && (
+                        <input 
+                          type="text" 
+                          value={activePromptCategory} 
+                          onChange={(e) => setActivePromptCategory(e.target.value)}
+                          placeholder="New category"
+                          className="flex-1 min-w-0 bg-app-bg border border-app-border rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-sm"
+                        />
+                      )}
+                    </div>
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-xs font-mono uppercase tracking-wider text-app-muted mb-1">Description <span className="text-red-400">*</span></label>
+                    <textarea 
+                      value={activePromptDescription} 
+                      onChange={(e) => setActivePromptDescription(e.target.value)}
+                      placeholder="Briefly describe what this prompt does..."
+                      className="w-full bg-app-bg border border-app-border rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-sm resize-none min-h-[60px]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-mono uppercase tracking-wider text-app-muted mb-1">Tags (comma separated)</label>
+                    <input 
+                      type="text" 
+                      value={activePromptTags} 
+                      onChange={(e) => setActivePromptTags(e.target.value)}
+                      placeholder="e.g., neon, futuristic"
+                      className="w-full bg-app-bg border border-app-border rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-mono uppercase tracking-wider text-app-muted mb-1">Visibility</label>
+                    <div className="flex bg-app-bg border border-app-border rounded-lg overflow-hidden h-[38px]">
+                      <button
+                        className={`flex-1 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors ${activePromptIsPublic ? 'bg-app-accent text-white' : 'text-app-muted hover:bg-app-surface'}`}
+                        onClick={() => setActivePromptIsPublic(true)}
+                      >
+                        Public
+                      </button>
+                      <button
+                        className={`flex-1 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors ${!activePromptIsPublic ? 'bg-amber-600 text-white' : 'text-app-muted hover:bg-app-surface'}`}
+                        onClick={() => setActivePromptIsPublic(false)}
+                      >
+                        Private
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-between mt-2 pt-4 border-t border-app-border">
+                  <div className="flex gap-3">
+                    <Button 
+                      onClick={handleSaveClick}
+                      variant="primary"
+                    >
+                      {activePromptId ? 'Update Prompt' : 'Save New Prompt'}
+                    </Button>
+                    {activePromptId && (
+                      <Button 
+                        onClick={handleSaveAsNewClick}
+                        variant="secondary"
+                      >
+                        Save As New
+                      </Button>
+                    )}
+                  </div>
+                  <Button 
+                    onClick={handleDownload} 
+                    disabled={!generatedImage || status.isLoading}
+                    variant="secondary"
+                  >
+                    Download Result
+                  </Button>
+                </div>
               </div>
              </div>
           </div>

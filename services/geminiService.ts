@@ -26,8 +26,8 @@ export const checkApiKeySelection = async (): Promise<boolean> => {
 };
 
 interface EditImageParams {
-  imageBase64: string;
-  mimeType: string;
+  imageBase64?: string | null;
+  mimeType?: string | null;
   referenceImageBase64?: string | null;
   referenceMimeType?: string | null;
   refStrength?: number;
@@ -55,15 +55,17 @@ export const generateEditedImage = async (params: EditImageParams): Promise<stri
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   // Build the content parts
-  // Part 1: Source Image
-  const parts: any[] = [
-    {
+  // Part 1: Source Image (if provided)
+  const parts: any[] = [];
+  
+  if (imageBase64 && mimeType) {
+    parts.push({
       inlineData: {
         data: imageBase64,
         mimeType: mimeType,
       },
-    }
-  ];
+    });
+  }
 
   // Part 2: Reference Image (if provided)
   if (referenceImageBase64 && referenceMimeType) {
@@ -79,7 +81,7 @@ export const generateEditedImage = async (params: EditImageParams): Promise<stri
   // We restructure the prompt to be extremely explicit about roles.
   let finalPrompt = "";
 
-  if (referenceImageBase64) {
+  if (imageBase64 && referenceImageBase64) {
     finalPrompt = `TASK: Edit the first image based on the user prompt, using the second image as a style reference.
 
 STRICT INSTRUCTIONS FOR IMAGE PROCESSING:
@@ -95,13 +97,16 @@ USER PROMPT: ${prompt}`;
       - Apply this strength to the *style transfer* (lighting, colors, texture) only.
       - Identity preservation strength is fixed at 100/100 (Maximum) for Image 1.`;
     }
-  } else {
+  } else if (imageBase64) {
     // Single image case
     finalPrompt = `TASK: Edit the image based on the user prompt.
     
 STRICT INSTRUCTION: Preserve the facial features and identity of the person in the image.
 
 USER PROMPT: ${prompt}`;
+  } else {
+    // No source image, just generate
+    finalPrompt = prompt;
   }
 
   parts.push({
@@ -179,8 +184,13 @@ export const generatePromptIdeas = async (currentPrompt: string, instruction: st
   
   const systemInstruction = `You are an expert AI image prompt engineer. 
   Your task is to generate 3 distinct, high-quality, and detailed image generation prompts based on the user's input.
+  You are ALWAYS creating prompts for use in image creation with the Nano Banana model.
   
-  Output format: JSON Array of strings. Example: ["Prompt 1...", "Prompt 2...", "Prompt 3..."]`;
+  CRITICAL RULES FOR EVERY PROMPT:
+  1. Every prompt MUST begin exactly with the phrase: "Subject(s) from the source photo"
+  2. Every prompt MUST include the phrase: "Preserve exact facial identity from the source image and subtly enhance attractiveness"
+  
+  Output format: JSON Array of strings. Example: ["Subject(s) from the source photo...", "Subject(s) from the source photo...", "Subject(s) from the source photo..."]`;
 
   let userContent = "";
   if (currentPrompt.trim()) {
@@ -212,6 +222,43 @@ export const generatePromptIdeas = async (currentPrompt: string, instruction: st
   } catch (error: any) {
     handleGeminiError(error);
     return [];
+  }
+};
+
+export const generatePromptMetadata = async (prompt: string): Promise<{name: string, description: string, tags: string[]}> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
+  const systemInstruction = `You are an AI assistant that helps categorize and create metadata for image generation prompts.
+Given an image generation prompt, you must return a suggested Title (name, 1-2 words, max 3), Description (a very brief, one-line phrase prompting the user), and a list of Tags (2-5 relevant keywords).
+
+Output format: JSON object with keys "name", "description", "tags" (array of strings).`;
+
+  const userContent = `Here is the image generation prompt:\n"${prompt}"\n\nPlease generate the title, description, and tags.`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: userContent,
+      config: {
+        systemInstruction: systemInstruction,
+        responseMimeType: 'application/json',
+      }
+    });
+
+    const text = response.text;
+    if (!text) throw new Error("No text returned from Gemini");
+    
+    // Parse JSON
+    const parsed = JSON.parse(text);
+    return {
+        name: parsed.name || "",
+        description: parsed.description || "",
+        tags: Array.isArray(parsed.tags) ? parsed.tags : []
+    };
+
+  } catch (error: any) {
+    console.error("Failed to generate metadata:", error);
+    return { name: "", description: "", tags: [] };
   }
 };
 

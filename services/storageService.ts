@@ -1,86 +1,73 @@
 import { Folder, SavedPrompt } from '../types';
+import { supabase } from './supabaseClient';
 
-const STORAGE_KEYS = {
-  FOLDERS: 'funframe_folders',
-  PROMPTS: 'funframe_prompts',
-};
+export const getStorageMode = () => 'supabase';
 
-const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
-
-// --- Mode Management ---
-
-// We are now strictly Local Only.
-export const getStorageMode = () => 'local';
-
-export const setStorageMode = async (mode: 'local') => {
-  // No-op, strictly local
-};
-
-export const initStorage = async () => {
-    // No initialization needed for local storage
-};
-
-// --- Folders ---
-
-export const getFolders = async (): Promise<Folder[]> => {
-  try {
-    const data = localStorage.getItem(STORAGE_KEYS.FOLDERS);
-    return data ? JSON.parse(data) : [];
-  } catch (e) {
-    return [];
-  }
-};
-
-export const saveFolder = async (name: string): Promise<Folder> => {
-  const folders = await getFolders();
-  const newFolder: Folder = { id: generateId(), name };
-  folders.push(newFolder);
-  localStorage.setItem(STORAGE_KEYS.FOLDERS, JSON.stringify(folders));
-  return newFolder;
-};
-
-export const deleteFolder = async (id: string): Promise<void> => {
-  const folders = (await getFolders()).filter(f => f.id !== id);
-  localStorage.setItem(STORAGE_KEYS.FOLDERS, JSON.stringify(folders));
-  
-  // Move prompts in this folder to root
-  const prompts = await getPrompts();
-  const updatedPrompts = prompts.map(p => p.folderId === id ? { ...p, folderId: 'root' } : p);
-  localStorage.setItem(STORAGE_KEYS.PROMPTS, JSON.stringify(updatedPrompts));
-};
-
-// --- Prompts ---
+export const setStorageMode = async (mode: 'supabase') => {};
+export const initStorage = async () => {};
 
 export const getPrompts = async (): Promise<SavedPrompt[]> => {
-  try {
-    const data = localStorage.getItem(STORAGE_KEYS.PROMPTS);
-    return data ? JSON.parse(data) : [];
-  } catch (e) {
+  const { data, error } = await supabase
+    .from('prompts')
+    .select('*')
+    .order('updated_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching prompts:', error);
     return [];
   }
+  return data as SavedPrompt[];
 };
 
-export const savePrompt = async (prompt: Omit<SavedPrompt, 'updatedAt'> | Omit<SavedPrompt, 'id' | 'updatedAt'>): Promise<SavedPrompt> => {
-  let prompts = await getPrompts();
-  const timestamp = Date.now();
-  
-  let savedEntry: SavedPrompt;
+export const savePrompt = async (prompt: Partial<SavedPrompt>): Promise<SavedPrompt> => {
+  const { id, ...promptData } = prompt;
 
-  if ('id' in prompt) {
+  if (id) {
     // Update existing
-    savedEntry = { ...prompt, updatedAt: timestamp } as SavedPrompt;
-    prompts = prompts.map(p => p.id === prompt.id ? savedEntry : p);
+    const { data, error } = await supabase
+      .from('prompts')
+      .update({ ...promptData, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data as SavedPrompt;
   } else {
     // Create new
-    savedEntry = { ...prompt, id: generateId(), updatedAt: timestamp } as SavedPrompt;
-    prompts.push(savedEntry);
+    const { data, error } = await supabase
+      .from('prompts')
+      .insert({ ...promptData, created_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data as SavedPrompt;
   }
-  
-  localStorage.setItem(STORAGE_KEYS.PROMPTS, JSON.stringify(prompts));
-  return savedEntry;
 };
 
 export const deletePrompt = async (id: string): Promise<void> => {
-  const prompts = (await getPrompts()).filter(p => p.id !== id);
-  localStorage.setItem(STORAGE_KEYS.PROMPTS, JSON.stringify(prompts));
+  const { error } = await supabase.from('prompts').delete().eq('id', id);
+  if (error) throw error;
+};
+
+// Folders are just unique categories
+export const getFolders = async (): Promise<Folder[]> => {
+  const prompts = await getPrompts();
+  const categories = Array.from(new Set(prompts.map(p => p.category).filter(c => c && c !== 'root'))) as string[];
+  return categories.map(c => ({ id: c, name: c }));
+};
+
+export const saveFolder = async (name: string): Promise<Folder> => {
+  // We can't save an empty folder to a DB without a folders table, 
+  // but we can return it as an active session folder or ignore it until a prompt is saved.
+  return { id: name, name };
+};
+
+export const deleteFolder = async (id: string): Promise<void> => {
+  // Option: delete all prompts in that category, or rename them. Let's just nullify their category (or set to 'root')
+  await supabase
+    .from('prompts')
+    .update({ category: 'root', updated_at: new Date().toISOString() })
+    .eq('category', id);
 };

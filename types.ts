@@ -44,8 +44,18 @@ export interface Folder {
 
 export interface SavedPrompt {
   id: string;
-  title: string;
-  content: string;
-  folderId: string;
-  updatedAt: number;
+  name: string;
+  description?: string;
+  category: string;
+  prompt_text: string;
+  preview_image_url?: string | null;
+  reference_image_url?: string | null;
+  is_active?: boolean;
+  usage_count?: number;
+  created_at?: string;
+  updated_at?: string;
+  tags?: string[];
+  is_public?: boolean;
+  user_id?: string | null;
 }
+
