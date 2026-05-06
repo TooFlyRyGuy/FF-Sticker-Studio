@@ -1,7 +1,9 @@
+import imageCompression from 'browser-image-compression';
+
 /**
  * Converts a File object to a Base64 string.
  */
-export const fileToBase64 = (file: File): Promise<string> => {
+export const fileToBase64 = (file: File | Blob): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -28,6 +30,16 @@ export const stripBase64Prefix = (dataUrl: string): string => {
  */
 export const getMimeType = (file: File): string => {
   return file.type || 'image/png';
+};
+
+/**
+ * Extracts the mime type from a data URL string.
+ */
+export const getMimeTypeFromBase64 = (dataUrl: string): string => {
+  if (dataUrl.startsWith('data:')) {
+    return dataUrl.substring(5, dataUrl.indexOf(';'));
+  }
+  return 'image/png';
 };
 
 /**
@@ -61,4 +73,31 @@ export const base64ToBlob = (base64: string, mimeType: string): Blob => {
   }
   const byteArray = new Uint8Array(byteNumbers);
   return new Blob([byteArray], { type: mimeType });
+};
+
+/**
+ * Compresses a Base64 image string to WebP format, reducing size for storage.
+ */
+export const compressImageBase64 = async (base64String: string | null): Promise<string | null> => {
+  if (!base64String) return base64String;
+  try {
+    const mimeType = getMimeTypeFromBase64(base64String);
+    const blob = base64ToBlob(base64String, mimeType);
+    const file = new File([blob], "image.jpg", { type: mimeType });
+    
+    // We want a modest compression for library preview and reference images.
+    // Quality vs size trade-off.
+    const options = {
+      maxSizeMB: 0.15, // Aim for <=150KB
+      maxWidthOrHeight: 1024,
+      useWebWorker: true,
+      fileType: 'image/webp'
+    };
+    
+    const compressedFile = await imageCompression(file, options);
+    return await fileToBase64(compressedFile);
+  } catch (error) {
+    console.error("Compression failed", error);
+    return base64String; // fallback to original if compression fails
+  }
 };

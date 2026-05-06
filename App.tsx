@@ -6,12 +6,16 @@ import ImageUpload from './components/ImageUpload';
 import PromptLibrary from './components/PromptLibrary';
 
 import PromptAssistant from './components/PromptAssistant';
-import { stripBase64Prefix, getMimeType } from './utils/imageUtils';
-import { generateEditedImage, promptForApiKey, generatePromptMetadata } from './services/geminiService';
-import { savePrompt, initStorage, getFolders } from './services/storageService';
+import Login from './components/Login';
+import { stripBase64Prefix, getMimeType, getMimeTypeFromBase64, compressImageBase64 } from './utils/imageUtils';
+import { generateEditedImage, generatePromptMetadata } from './services/geminiService';
+import { savePrompt, initStorage, getFolders, getPromptById } from './services/storageService';
 import { AspectRatio, ImageSize, ModelType, ProcessingState, NotificationItem, NotificationType, SavedPrompt, Folder } from './types';
 
 const App: React.FC = () => {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    return localStorage.getItem('isAuthenticated') === 'true';
+  });
   const [initialCheckDone, setInitialCheckDone] = useState(false);
   
   // Image State
@@ -42,6 +46,7 @@ const App: React.FC = () => {
   const [activePromptTags, setActivePromptTags] = useState<string>("");
   const [activePromptIsPublic, setActivePromptIsPublic] = useState<boolean>(true);
   const [activePromptPreviewUrl, setActivePromptPreviewUrl] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<{name?: boolean, description?: boolean, category?: boolean}>({});
   
   const [categories, setCategories] = useState<Folder[]>([]);
 
@@ -110,20 +115,77 @@ const App: React.FC = () => {
       addNotification('success', 'Prompt updated from Assistant!');
   };
 
-  const handleSelectPrompt = (savedPrompt: SavedPrompt) => {
-    setPrompt(savedPrompt.prompt_text);
-    setActivePromptId(savedPrompt.id);
-    setActivePromptName(savedPrompt.name);
-    const cat = savedPrompt.category && savedPrompt.category !== 'root' ? savedPrompt.category : "";
-    setActivePromptCategory(cat);
-    setIsNewCategory(!cat);
-    setActivePromptDescription(savedPrompt.description || "");
-    setActivePromptTags((savedPrompt.tags || []).join(", "));
-    setActivePromptIsPublic(savedPrompt.is_public ?? true);
-    setActivePromptPreviewUrl(savedPrompt.preview_image_url || null);
-    setGeneratedImage(null); // Clear previously generated image when exploring newly loaded prompts
-    setIsLibraryOpen(false);
-    addNotification('success', `Loaded "${savedPrompt.name}"`);
+  const handleSelectPrompt = async (savedPrompt: SavedPrompt) => {
+    try {
+      setValidationErrors({});
+      const fullPrompt = await getPromptById(savedPrompt.id) || savedPrompt;
+      setPrompt(fullPrompt.prompt_text || (fullPrompt as any).prompt || "");
+      setActivePromptId(fullPrompt.id);
+      setActivePromptName(fullPrompt.name || "");
+      const cat = fullPrompt.category && fullPrompt.category !== 'root' ? fullPrompt.category : "";
+      setActivePromptCategory(cat);
+      setIsNewCategory(!cat);
+      setActivePromptDescription(fullPrompt.description || "");
+      setActivePromptTags(Array.isArray(fullPrompt.tags) ? fullPrompt.tags.join(', ') : (typeof fullPrompt.tags === 'string' ? fullPrompt.tags : ""));
+      setActivePromptIsPublic(fullPrompt.is_public ?? true);
+      setActivePromptPreviewUrl(fullPrompt.preview_image_url || null);
+      setReferenceImage(fullPrompt.reference_image_url || null);
+      setReferenceFile(null); // Clear file as we have a URL/bas64 string
+      setGeneratedImage(null); // Clear previously generated image when exploring newly loaded prompts
+      setIsLibraryOpen(false);
+      addNotification('success', `Loaded "${fullPrompt.name}"`);
+    } catch (e) {
+      console.error(e);
+      addNotification('error', "Failed to load prompt details from server.");
+    }
+  };
+
+  const handleAutoFillOrClearMetadata = async () => {
+    const hasContent = prompt || activePromptName || activePromptDescription || activePromptCategory || activePromptTags;
+    
+    setValidationErrors({});
+    
+    if (hasContent) {
+      setPrompt("");
+      setActivePromptName("");
+      setActivePromptDescription("");
+      setActivePromptCategory("");
+      setIsNewCategory(true);
+      setActivePromptTags("");
+      setActivePromptId(null);
+      setGeneratedImage(null);
+      setActivePromptPreviewUrl(null);
+      addNotification("success", "Cleared prompt and metadata.");
+    } else {
+      if (!prompt.trim()) {
+        addNotification("error", "Please write a prompt first to generate metadata.");
+        return;
+      }
+      setStatus({ isLoading: true, error: null, progress: 'Generating metadata...' });
+      try {
+        const metadata = await generatePromptMetadata(prompt);
+        if (metadata.name) setActivePromptName(metadata.name);
+        if (metadata.description) setActivePromptDescription(metadata.description);
+        if (metadata.category) {
+          setActivePromptCategory(metadata.category);
+          // If the generated category matches an existing one, select it, else create new
+          const existingCat = categories.find(c => c.name.toLowerCase() === metadata.category.toLowerCase());
+          if (existingCat) {
+            setActivePromptCategory(existingCat.name);
+            setIsNewCategory(false);
+          } else {
+            setIsNewCategory(true);
+          }
+        }
+        if (metadata.tags && metadata.tags.length > 0) setActivePromptTags(metadata.tags.join(', '));
+        addNotification("success", "AI metadata generated!");
+      } catch (e: any) {
+         console.error(e);
+         addNotification("error", "Failed to generate metadata.");
+      } finally {
+        setStatus({ isLoading: false, error: null, progress: undefined });
+      }
+    }
   };
 
   const handleSaveClick = async () => {
@@ -131,7 +193,16 @@ const App: React.FC = () => {
       addNotification('error', "Cannot save an empty prompt.");
       return;
     }
-    if (!activePromptName.trim() || !activePromptDescription.trim() || !activePromptCategory.trim()) {
+    
+    let hasError = false;
+    const errors: {name?: boolean, description?: boolean, category?: boolean} = {};
+    if (!activePromptName.trim()) { errors.name = true; hasError = true; }
+    if (!activePromptDescription.trim()) { errors.description = true; hasError = true; }
+    if (!activePromptCategory.trim()) { errors.category = true; hasError = true; }
+    
+    setValidationErrors(errors);
+    
+    if (hasError) {
       addNotification('error', "Name, Description, and Category are required to save.");
       return;
     }
@@ -139,6 +210,11 @@ const App: React.FC = () => {
     const previewImage = generatedImage || activePromptPreviewUrl || null;
 
     try {
+      setStatus({ isLoading: true, error: null, progress: 'Compressing images...' });
+      
+      const compressedPreview = await compressImageBase64(previewImage);
+      const compressedReference = await compressImageBase64(referenceImage);
+
       const promptData: Partial<SavedPrompt> = {
         name: activePromptName,
         prompt_text: prompt,
@@ -146,7 +222,8 @@ const App: React.FC = () => {
         tags: activePromptTags.split(',').map(tag => tag.trim()).filter(t => t),
         category: activePromptCategory,
         is_public: activePromptIsPublic,
-        preview_image_url: previewImage,
+        preview_image_url: compressedPreview,
+        reference_image_url: compressedReference,
         user_id: !activePromptIsPublic ? "274f2dd5-9843-4518-872d-88c2e0f225f5" : null
       };
 
@@ -163,14 +240,19 @@ const App: React.FC = () => {
       }
       
       // Update categories if new
-      if (promptData.category && !categories.find(c => c.name === promptData.category)) {
-        setCategories(prev => [...prev, { id: promptData.category!, name: promptData.category! }]);
+      if (promptData.category && promptData.category !== 'root' && !categories.find(c => c.name === promptData.category)) {
+        setCategories(prev => {
+          const newCategories = [...prev, { id: promptData.category!, name: promptData.category! }];
+          return newCategories.sort((a, b) => a.name.localeCompare(b.name));
+        });
       }
 
       setActivePromptPreviewUrl(previewImage);
     } catch (e: any) {
       console.error(e);
       addNotification('error', `Failed to save prompt: ${e.message || 'Unknown error'}`);
+    } finally {
+      setStatus({ isLoading: false, error: null, progress: undefined });
     }
   };
 
@@ -180,17 +262,61 @@ const App: React.FC = () => {
       return;
     }
     
-    // We update the name slightly if it was a copy, but they should be able to edit it.
-    // If they hit Save As New, maybe we just set activePromptId = null and let them hit Save, OR we do the save here immediately.
-    // Since the form is inline, "Save New" could just copy to a new record.
-    setActivePromptId(null);
+    let hasError = false;
+    const errors: {name?: boolean, description?: boolean, category?: boolean} = {};
+    if (!activePromptName.trim()) { errors.name = true; hasError = true; }
+    if (!activePromptDescription.trim()) { errors.description = true; hasError = true; }
+    if (!activePromptCategory.trim()) { errors.category = true; hasError = true; }
+    
+    setValidationErrors(errors);
+    
+    if (hasError) {
+      addNotification('error', "Name, Description, and Category are required to save.");
+      return;
+    }
+
     const newName = activePromptName ? `${activePromptName} (Copy)` : "New Prompt";
     setActivePromptName(newName);
     
-    // Wait for the user to be ready to save? Or save immediately? 
-    // They asked "REQUIRE Name, Description and visibility fields when saving prompts."
-    // If we just clear the ID and rename, they can review and hit Save.
-    addNotification('info', `Ready to save as "${newName}". Review and click Save.`);
+    const previewImage = generatedImage || activePromptPreviewUrl || null;
+
+    try {
+      setStatus({ isLoading: true, error: null, progress: 'Compressing images...' });
+      
+      const compressedPreview = await compressImageBase64(previewImage);
+      const compressedReference = await compressImageBase64(referenceImage);
+
+      const promptData: Partial<SavedPrompt> = {
+        name: newName,
+        prompt_text: prompt,
+        description: activePromptDescription,
+        tags: activePromptTags.split(',').map(tag => tag.trim()).filter(t => t),
+        category: activePromptCategory,
+        is_public: activePromptIsPublic,
+        preview_image_url: compressedPreview,
+        reference_image_url: compressedReference,
+        user_id: !activePromptIsPublic ? "274f2dd5-9843-4518-872d-88c2e0f225f5" : null
+      };
+
+      const newPrompt = await savePrompt(promptData);
+      setActivePromptId(newPrompt.id);
+      addNotification('success', `Saved "${newName}"`);
+      
+      // Update categories if new
+      if (promptData.category && promptData.category !== 'root' && !categories.find(c => c.name === promptData.category)) {
+        setCategories(prev => {
+          const newCategories = [...prev, { id: promptData.category!, name: promptData.category! }];
+          return newCategories.sort((a, b) => a.name.localeCompare(b.name));
+        });
+      }
+
+      setActivePromptPreviewUrl(previewImage);
+    } catch (e: any) {
+      console.error(e);
+      addNotification('error', `Failed to save prompt: ${e.message || 'Unknown error'}`);
+    } finally {
+      setStatus({ isLoading: false, error: null, progress: undefined });
+    }
   };
 
   const handleGenerate = async () => {
@@ -203,10 +329,10 @@ const App: React.FC = () => {
 
     try {
       const rawBase64 = sourceImage ? stripBase64Prefix(sourceImage) : undefined;
-      const mimeType = sourceFile ? getMimeType(sourceFile) : undefined;
+      const mimeType = sourceFile ? getMimeType(sourceFile) : (sourceImage ? getMimeTypeFromBase64(sourceImage) : undefined);
       
       const refRawBase64 = referenceImage ? stripBase64Prefix(referenceImage) : undefined;
-      const refMimeType = referenceFile ? getMimeType(referenceFile) : undefined;
+      const refMimeType = referenceFile ? getMimeType(referenceFile) : (referenceImage ? getMimeTypeFromBase64(referenceImage) : undefined);
 
       const resultImage = await generateEditedImage({
         imageBase64: rawBase64,
@@ -222,7 +348,7 @@ const App: React.FC = () => {
 
       setGeneratedImage(resultImage);
       
-      if (!activePromptName || !activePromptDescription) {
+      if (!activePromptId && (!activePromptName || !activePromptDescription)) {
         setStatus({ isLoading: true, error: null, progress: 'Generating suggested metadata...' });
         const metadata = await generatePromptMetadata(prompt);
         if (metadata.name && !activePromptName) setActivePromptName(metadata.name);
@@ -269,6 +395,10 @@ const App: React.FC = () => {
     return <div className="min-h-screen bg-app-bg flex items-center justify-center text-app-muted font-mono text-sm tracking-widest uppercase">Initializing...</div>;
   }
 
+  if (!isAuthenticated) {
+    return <Login onLogin={() => setIsAuthenticated(true)} />;
+  }
+
   return (
     <div className="min-h-screen bg-app-bg text-app-text font-sans selection:bg-app-accent/30">
       <Header />
@@ -293,9 +423,49 @@ const App: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Controls Column */}
           <div className="space-y-6">
+            {/* The Prompt */}
+            <div className="bg-app-surface rounded-xl border border-app-border p-6 shadow-2xl shadow-black/50 space-y-4 relative">
+              <h2 className="text-lg font-semibold text-white mb-2 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="bg-app-bg w-7 h-7 rounded flex items-center justify-center text-xs font-mono text-app-accent border border-app-border">01</span>
+                  The Prompt
+                </div>
+                <div className="flex gap-2">
+                  <button
+                      onClick={() => setIsAssistantOpen(true)}
+                      className="text-[10px] uppercase tracking-wider font-bold bg-app-accent hover:bg-app-accentHover text-white px-3 py-1.5 rounded flex items-center gap-1 shadow-md shadow-app-accent/20 transition-colors"
+                      title="AI Prompt Assistant"
+                  >
+                      ✨ Assistant
+                  </button>
+                  <button 
+                    onClick={() => setIsLibraryOpen(true)}
+                    className="text-[10px] uppercase tracking-wider font-bold bg-app-border hover:bg-app-border/80 text-app-text px-3 py-1.5 rounded border border-app-border transition-colors"
+                  >
+                    Library
+                  </button>
+                </div>
+              </h2>
+              
+              <div>
+                {activePromptId && (
+                  <div className="mb-2 text-[10px] text-app-accent bg-app-accent/10 px-2 py-0.5 rounded border border-app-accent/20 inline-block">
+                    Editing: {activePromptName}
+                  </div>
+                )}
+                <textarea
+                  value={prompt}
+                  onChange={handlePromptChange}
+                  placeholder={referenceImage ? "Describe how you want to modify the source image using the reference..." : "Describe how you want to modify the image..."}
+                  className="w-full bg-app-bg border border-app-border rounded-lg px-4 py-3 text-white focus:ring-1 focus:ring-app-accent focus:border-app-accent outline-none min-h-[140px] resize-none text-base font-sans"
+                />
+              </div>
+            </div>
+
+            {/* Upload Images */}
             <div className="bg-app-surface rounded-xl border border-app-border p-6 shadow-2xl shadow-black/50">
               <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-3">
-                <span className="bg-app-bg w-7 h-7 rounded flex items-center justify-center text-xs font-mono text-app-accent border border-app-border">01</span>
+                <span className="bg-app-bg w-7 h-7 rounded flex items-center justify-center text-xs font-mono text-app-accent border border-app-border">02</span>
                 Upload Images
               </h2>
               <div className="space-y-4">
@@ -318,7 +488,7 @@ const App: React.FC = () => {
 
             <div className="bg-app-surface rounded-xl border border-app-border p-6 shadow-2xl shadow-black/50 space-y-6">
               <h2 className="text-lg font-semibold text-white flex items-center gap-3">
-                <span className="bg-app-bg w-7 h-7 rounded flex items-center justify-center text-xs font-mono text-app-accent border border-app-border">02</span>
+                <span className="bg-app-bg w-7 h-7 rounded flex items-center justify-center text-xs font-mono text-app-accent border border-app-border">03</span>
                 Configuration
               </h2>
 
@@ -326,15 +496,6 @@ const App: React.FC = () => {
                 <div className="col-span-2">
                   <div className="flex items-center justify-between mb-2">
                     <label className="block text-xs font-mono uppercase tracking-wider text-app-muted">Model</label>
-                    {(selectedModel === ModelType.PRO || selectedModel === ModelType.FLASH_3_1) && (
-                      <button 
-                        onClick={() => promptForApiKey()}
-                        className="text-[10px] uppercase tracking-wider font-bold text-app-accent hover:text-app-accentHover transition-colors flex items-center gap-1"
-                      >
-                        <span>🔑</span>
-                        Change Key
-                      </button>
-                    )}
                   </div>
                   <select 
                     value={selectedModel}
@@ -390,61 +551,27 @@ const App: React.FC = () => {
                   />
                 </div>
               )}
-
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-mono uppercase tracking-wider text-app-muted flex items-center gap-2">
-                    Prompt
-                    {activePromptId && (
-                      <span className="ml-2 text-[10px] text-app-accent bg-app-accent/10 px-2 py-0.5 rounded border border-app-accent/20">
-                        Editing: {activePromptName}
-                      </span>
-                    )}
-                  </label>
-                  <div className="flex gap-2">
-                    <button
-                        onClick={() => setIsAssistantOpen(true)}
-                        className="text-[10px] uppercase tracking-wider font-bold bg-app-accent hover:bg-app-accentHover text-white px-3 py-1.5 rounded flex items-center gap-1 shadow-md shadow-app-accent/20 transition-colors"
-                        title="AI Prompt Assistant"
-                    >
-                        ✨ Prompt Assistant
-                    </button>
-                    <button 
-                      onClick={() => setIsLibraryOpen(true)}
-                      className="text-[10px] uppercase tracking-wider font-bold bg-app-border hover:bg-app-border/80 text-app-text px-3 py-1.5 rounded border border-app-border transition-colors"
-                    >
-                      Library
-                    </button>
-                  </div>
-                </div>
-                <textarea
-                  value={prompt}
-                  onChange={handlePromptChange}
-                  placeholder={referenceImage ? "Describe how you want to modify the source image using the reference..." : "Describe how you want to modify the image..."}
-                  className="w-full bg-app-bg border border-app-border rounded-lg px-4 py-3 text-white focus:ring-1 focus:ring-app-accent focus:border-app-accent outline-none min-h-[120px] resize-none text-sm font-mono"
-                />
-              </div>
-
-              <Button 
-                onClick={handleGenerate} 
-                isLoading={status.isLoading}
-                disabled={!prompt}
-                className="w-full bg-app-accent hover:bg-app-accentHover text-white font-semibold tracking-wide uppercase text-sm rounded-lg py-3 transition-colors"
-              >
-                {status.isLoading ? 'Generating...' : 'Generate Image'}
-              </Button>
             </div>
           </div>
 
           {/* Results Column */}
           <div className="space-y-6">
+            <Button 
+              onClick={handleGenerate} 
+              isLoading={status.isLoading}
+              disabled={!prompt}
+              className="w-full bg-app-accent hover:bg-app-accentHover text-white font-semibold tracking-wide uppercase text-lg rounded-xl py-4 shadow-xl shadow-app-accent/20 transition-all active:scale-[0.98]"
+            >
+              {status.isLoading ? 'Generating...' : 'Generate Image'}
+            </Button>
+
              <div className="bg-app-surface rounded-xl border border-app-border p-6 shadow-2xl shadow-black/50 min-h-[500px] flex flex-col">
               <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-3">
-                <span className="bg-app-bg w-7 h-7 rounded flex items-center justify-center text-xs font-mono text-app-accent border border-app-border">03</span>
+                <span className="bg-app-bg w-7 h-7 rounded flex items-center justify-center text-xs font-mono text-app-accent border border-app-border">04</span>
                 Result
               </h2>
 
-              <div className="flex-grow flex items-center justify-center bg-app-bg rounded-lg border border-app-border relative overflow-hidden">
+              <div className="flex-grow flex items-center justify-center bg-app-bg rounded-lg border border-app-border relative overflow-hidden min-h-[400px]">
                 {status.isLoading && (
                    <div className="absolute inset-0 z-20 bg-app-bg/80 backdrop-blur-sm flex flex-col items-center justify-center gap-4 animate-fadeIn">
                      <div className="w-12 h-12 border-2 border-app-accent border-t-transparent rounded-full animate-spin"></div>
@@ -468,15 +595,28 @@ const App: React.FC = () => {
               </div>
 
               <div className="mt-6 flex flex-col gap-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold text-white uppercase tracking-wider font-mono">Prompt Metadata</h3>
+                  <button 
+                    onClick={handleAutoFillOrClearMetadata}
+                    className="text-xs font-mono uppercase tracking-wider text-app-accent hover:text-white transition-colors bg-app-accent/10 hover:bg-app-accent/20 px-3 py-1.5 rounded border border-app-accent/20 flex items-center gap-2"
+                  >
+                    <span>✨</span>
+                    {(prompt || activePromptName || activePromptDescription || activePromptCategory || activePromptTags) ? 'Clear All' : 'Auto-fill'}
+                  </button>
+                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-mono uppercase tracking-wider text-app-muted mb-1">Name <span className="text-red-400">*</span></label>
                     <input 
                       type="text" 
                       value={activePromptName} 
-                      onChange={(e) => setActivePromptName(e.target.value)}
+                      onChange={(e) => {
+                        setActivePromptName(e.target.value);
+                        if (validationErrors.name) setValidationErrors(prev => ({ ...prev, name: false }));
+                      }}
                       placeholder="e.g., Cyberpunk Cityscape"
-                      className="w-full bg-app-bg border border-app-border rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-sm"
+                      className={`w-full bg-app-bg border ${validationErrors.name ? 'border-red-500 bg-red-500/5' : 'border-app-border'} rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-sm transition-colors`}
                     />
                   </div>
                   <div>
@@ -485,6 +625,7 @@ const App: React.FC = () => {
                       <select
                         value={isNewCategory ? "_new_" : activePromptCategory}
                         onChange={(e) => {
+                          if (validationErrors.category) setValidationErrors(prev => ({ ...prev, category: false }));
                           if (e.target.value === "_new_") {
                             setIsNewCategory(true);
                             setActivePromptCategory("");
@@ -493,7 +634,7 @@ const App: React.FC = () => {
                             setActivePromptCategory(e.target.value);
                           }
                         }}
-                        className={`bg-app-bg border border-app-border rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-sm ${isNewCategory ? 'w-[140px]' : 'w-full'}`}
+                        className={`bg-app-bg border ${validationErrors.category && !isNewCategory ? 'border-red-500 bg-red-500/5' : 'border-app-border'} rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-sm transition-colors ${isNewCategory ? 'w-[140px]' : 'w-full'}`}
                       >
                        <option value="_new_">+ Create New...</option>
                        {activePromptCategory && !categories.find(c => c.name === activePromptCategory) && !isNewCategory && (
@@ -508,9 +649,12 @@ const App: React.FC = () => {
                         <input 
                           type="text" 
                           value={activePromptCategory} 
-                          onChange={(e) => setActivePromptCategory(e.target.value)}
+                          onChange={(e) => {
+                            setActivePromptCategory(e.target.value);
+                            if (validationErrors.category) setValidationErrors(prev => ({ ...prev, category: false }));
+                          }}
                           placeholder="New category"
-                          className="flex-1 min-w-0 bg-app-bg border border-app-border rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-sm"
+                          className={`flex-1 min-w-0 bg-app-bg border ${validationErrors.category && isNewCategory ? 'border-red-500 bg-red-500/5' : 'border-app-border'} rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-sm transition-colors`}
                         />
                       )}
                     </div>
@@ -519,9 +663,12 @@ const App: React.FC = () => {
                     <label className="block text-xs font-mono uppercase tracking-wider text-app-muted mb-1">Description <span className="text-red-400">*</span></label>
                     <textarea 
                       value={activePromptDescription} 
-                      onChange={(e) => setActivePromptDescription(e.target.value)}
+                      onChange={(e) => {
+                        setActivePromptDescription(e.target.value);
+                        if (validationErrors.description) setValidationErrors(prev => ({ ...prev, description: false }));
+                      }}
                       placeholder="Briefly describe what this prompt does..."
-                      className="w-full bg-app-bg border border-app-border rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-sm resize-none min-h-[60px]"
+                      className={`w-full bg-app-bg border ${validationErrors.description ? 'border-red-500 bg-red-500/5' : 'border-app-border'} rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-sm resize-none min-h-[60px] transition-colors`}
                     />
                   </div>
                   <div>

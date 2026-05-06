@@ -1,30 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { AspectRatio, ImageSize, ModelType } from "../types";
 
-declare global {
-  interface Window {
-    aistudio: {
-      openSelectKey: () => Promise<void>;
-      hasSelectedApiKey: () => Promise<boolean>;
-    };
-  }
-}
-
-export const promptForApiKey = async (): Promise<void> => {
-  if (window.aistudio) {
-    await window.aistudio.openSelectKey();
-  } else {
-    console.warn('window.aistudio not found');
-  }
-};
-
-export const checkApiKeySelection = async (): Promise<boolean> => {
-  if (window.aistudio) {
-    return await window.aistudio.hasSelectedApiKey();
-  }
-  return false;
-};
-
 interface EditImageParams {
   imageBase64?: string | null;
   mimeType?: string | null;
@@ -37,22 +13,86 @@ interface EditImageParams {
   model: ModelType;
 }
 
-export const generateEditedImage = async (params: EditImageParams): Promise<string> => {
-  const { imageBase64, mimeType, referenceImageBase64, referenceMimeType, refStrength, prompt, aspectRatio, imageSize, model } = params;
+export const resolveApiKey = async (model?: string) => {
+  // Check for paid keys provided by the user in Settings -> Secrets
+  // We use import.meta.env for Vite browser compatibility
+  const customKey = import.meta.env.VITE_GEMINI_API_KEY || 
+                    import.meta.env.VITE_PAID_API_KEY || 
+                    import.meta.env.VITE_GEMINI_PAID_API_KEY || 
+                    import.meta.env.VITE_API_KEY;
+                    
+  // If the user explicitly provided a VITE_ key, force the app to use it.
+  if (customKey) {
+    return customKey;
+  }
 
-  // For Pro and 3.1 Flash models, we must ensure an API key is selected if we are in the AI Studio environment
-  if (model === ModelType.PRO || model === ModelType.FLASH_3_1) {
-    const hasKey = await checkApiKeySelection();
-    if (!hasKey) {
-      await promptForApiKey();
-      // After prompting, we check again. If still false, user might have cancelled.
-      // But per guidelines, we proceed and let the API call fail with 401/403 if needed.
+  let serverKey = "";
+  // Fetch the dynamically injected secret at runtime
+  try {
+    const res = await fetch('/api/config');
+    const data = await res.json();
+    serverKey = data.apiKey || "";
+  } catch(e) {
+    // runtime config might not exist in all environments
+  }
+
+  let bakedKey = "";
+  try {
+      // @ts-ignore
+      bakedKey = process.env.GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY || "";
+  } catch (e) {
+  }
+
+  const finalKey = customKey || serverKey || bakedKey || "";
+  if (!finalKey) {
+      throw new Error("No API key available. Please add VITE_GEMINI_API_KEY in Settings -> Secrets.");
+  }
+  return finalKey;
+};
+
+const ensureBase64 = async (data: string, defaultMime: string): Promise<{ data: string; mime: string }> => {
+  if (data.startsWith('http://') || data.startsWith('https://')) {
+    try {
+      const response = await fetch(data);
+      const blob = await response.blob();
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const result = reader.result as string;
+          resolve(result.split(',')[1] || result);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      return { data: base64Data, mime: blob.type || defaultMime };
+    } catch (e) {
+      console.error("Failed to fetch image URL:", e);
+      return { data, mime: defaultMime }; // fallback
     }
+  }
+  return { data, mime: defaultMime };
+};
+
+export const generateEditedImage = async (params: EditImageParams): Promise<string> => {
+  let { imageBase64, mimeType, referenceImageBase64, referenceMimeType, refStrength, prompt, aspectRatio, imageSize, model } = params;
+
+  if (imageBase64) {
+    const result = await ensureBase64(imageBase64, mimeType || 'image/png');
+    imageBase64 = result.data;
+    mimeType = result.mime;
+  }
+
+  if (referenceImageBase64) {
+    const result = await ensureBase64(referenceImageBase64, referenceMimeType || 'image/png');
+    referenceImageBase64 = result.data;
+    referenceMimeType = result.mime;
   }
 
   // Initialize a new instance to ensure we capture the selected API key
-  // process.env.API_KEY is automatically injected by the platform for both free and paid keys
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = await resolveApiKey(model);
+  const ai = new GoogleGenAI({ 
+    apiKey
+  });
 
   // Build the content parts
   // Part 1: Source Image (if provided)
@@ -114,17 +154,24 @@ USER PROMPT: ${prompt}`;
   });
 
   try {
+    const isHighFidelity = model === ModelType.PRO || model === ModelType.FLASH_3_1;
+    const configData: any = {
+      imageConfig: {
+        aspectRatio: aspectRatio,
+      },
+    };
+    
+    // imageSize is only supported by higher tier models
+    if (isHighFidelity && imageSize) {
+       configData.imageConfig.imageSize = imageSize;
+    }
+
     const response = await ai.models.generateContent({
       model: model,
       contents: {
         parts: parts,
       },
-      config: {
-        imageConfig: {
-          aspectRatio: aspectRatio,
-          imageSize: imageSize,
-        },
-      },
+      config: configData,
     });
 
     // 1. Check for prompt feedback (Prompt Blocking)
@@ -180,17 +227,19 @@ USER PROMPT: ${prompt}`;
 };
 
 export const generatePromptIdeas = async (currentPrompt: string, instruction: string): Promise<string[]> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = await resolveApiKey();
+  const ai = new GoogleGenAI({ 
+    apiKey
+  });
   
   const systemInstruction = `You are an expert AI image prompt engineer. 
   Your task is to generate 3 distinct, high-quality, and detailed image generation prompts based on the user's input.
-  You are ALWAYS creating prompts for use in image creation with the Nano Banana model.
   
   CRITICAL RULES FOR EVERY PROMPT:
-  1. Every prompt MUST begin exactly with the phrase: "Subject(s) from the source photo"
+  1. Every prompt MUST begin exactly with the phrase: "Subject(s) from the source photo depicted as, or transformed into"
   2. Every prompt MUST include the phrase: "Preserve exact facial identity from the source image and subtly enhance attractiveness"
   
-  Output format: JSON Array of strings. Example: ["Subject(s) from the source photo...", "Subject(s) from the source photo...", "Subject(s) from the source photo..."]`;
+  Output format: JSON Array of strings. Example: ["Subject(s) from the source photo depicted as, or transformed into...", "Subject(s) from the source photo depicted as, or transformed into...", "Subject(s) from the source photo depicted as, or transformed into..."]`;
 
   let userContent = "";
   if (currentPrompt.trim()) {
@@ -225,15 +274,18 @@ export const generatePromptIdeas = async (currentPrompt: string, instruction: st
   }
 };
 
-export const generatePromptMetadata = async (prompt: string): Promise<{name: string, description: string, tags: string[]}> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+export const generatePromptMetadata = async (prompt: string): Promise<{name: string, description: string, tags: string[], category: string}> => {
+  const apiKey = await resolveApiKey();
+  const ai = new GoogleGenAI({ 
+    apiKey
+  });
   
   const systemInstruction = `You are an AI assistant that helps categorize and create metadata for image generation prompts.
-Given an image generation prompt, you must return a suggested Title (name, 1-2 words, max 3), Description (a very brief, one-line phrase prompting the user), and a list of Tags (2-5 relevant keywords).
+Given an image generation prompt, you must return a suggested Title (name, 1-2 words, max 3), Description (a very brief, one-line phrase prompting the user), Category (a broad classification like Portrait, Landscape, Abstract, Cyberpunk, Cinematic, etc. Keep it to 1 word usually), and a list of Tags (2-5 relevant keywords).
 
-Output format: JSON object with keys "name", "description", "tags" (array of strings).`;
+Output format: JSON object with keys "name", "description", "category", "tags" (array of strings).`;
 
-  const userContent = `Here is the image generation prompt:\n"${prompt}"\n\nPlease generate the title, description, and tags.`;
+  const userContent = `Here is the image generation prompt:\n"${prompt}"\n\nPlease generate the title, description, category, and tags.`;
 
   try {
     const response = await ai.models.generateContent({
@@ -253,12 +305,13 @@ Output format: JSON object with keys "name", "description", "tags" (array of str
     return {
         name: parsed.name || "",
         description: parsed.description || "",
+        category: parsed.category || "General",
         tags: Array.isArray(parsed.tags) ? parsed.tags : []
     };
 
   } catch (error: any) {
     console.error("Failed to generate metadata:", error);
-    return { name: "", description: "", tags: [] };
+    return { name: "", description: "", category: "General", tags: [] };
   }
 };
 
@@ -290,11 +343,26 @@ const handleGeminiError = (error: any) => {
 
     // Handle other common API errors gracefully
     if (error.status === 400) {
-      throw new Error("Invalid request.");
+      throw new Error(`Invalid request: ${errorMessage}`);
     }
     if (error.status === 503 || error.status === 500) {
       throw new Error("Service temporarily unavailable.");
     }
     
     throw error;
+};
+
+/**
+ * Helper to check if a Gemini API key is selected.
+ */
+export const checkApiKeySelection = async (): Promise<boolean> => {
+  return !!(import.meta.env.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' && process.env.GEMINI_API_KEY) || import.meta.env.GEMINI_API_KEY);
+};
+
+/**
+ * Helper to prompt for a Gemini API key selection.
+ */
+export const promptForApiKey = async (): Promise<void> => {
+  // In AI Studio, the platform handles key selection via UI.
+  console.log("Please ensure a Gemini API key is configured in the Settings menu.");
 };

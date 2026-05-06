@@ -46,6 +46,9 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
     if (e.target.files && e.target.files[0]) {
       processFile(e.target.files[0]);
     }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -111,6 +114,9 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
                 onClick={(e) => {
                   e.stopPropagation();
                   onRemove();
+                  if (fileInputRef.current) {
+                    fileInputRef.current.value = '';
+                  }
                 }}
                 className="absolute top-2 right-2 p-1.5 bg-red-500/80 hover:bg-red-600 text-white rounded-full transition-colors z-10 shadow-lg backdrop-blur-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
                 title="Remove Image"

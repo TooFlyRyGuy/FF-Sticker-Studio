@@ -9,7 +9,7 @@ export const initStorage = async () => {};
 export const getPrompts = async (): Promise<SavedPrompt[]> => {
   const { data, error } = await supabase
     .from('prompts')
-    .select('*')
+    .select('id, name, description, category, prompt_text, preview_image_url, is_active, usage_count, created_at, updated_at, tags, is_public, user_id')
     .order('updated_at', { ascending: false });
 
   if (error) {
@@ -17,6 +17,20 @@ export const getPrompts = async (): Promise<SavedPrompt[]> => {
     return [];
   }
   return data as SavedPrompt[];
+};
+
+export const getPromptById = async (id: string): Promise<SavedPrompt | null> => {
+  const { data, error } = await supabase
+    .from('prompts')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error) {
+    console.error('Error fetching prompt by id:', error);
+    return null;
+  }
+  return data as SavedPrompt;
 };
 
 export const savePrompt = async (prompt: Partial<SavedPrompt>): Promise<SavedPrompt> => {
@@ -28,21 +42,25 @@ export const savePrompt = async (prompt: Partial<SavedPrompt>): Promise<SavedPro
       .from('prompts')
       .update({ ...promptData, updated_at: new Date().toISOString() })
       .eq('id', id)
-      .select()
-      .single();
+      .select();
 
     if (error) throw error;
-    return data as SavedPrompt;
+    if (!data || data.length === 0) {
+      throw new Error("Could not update the prompt. You may not have permission, or it was deleted.");
+    }
+    return data[0] as SavedPrompt;
   } else {
     // Create new
     const { data, error } = await supabase
       .from('prompts')
       .insert({ ...promptData, created_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-      .select()
-      .single();
+      .select();
 
     if (error) throw error;
-    return data as SavedPrompt;
+    if (!data || data.length === 0) {
+      throw new Error("Could not save the prompt. You may not have permission.");
+    }
+    return data[0] as SavedPrompt;
   }
 };
 
@@ -53,8 +71,13 @@ export const deletePrompt = async (id: string): Promise<void> => {
 
 // Folders are just unique categories
 export const getFolders = async (): Promise<Folder[]> => {
-  const prompts = await getPrompts();
-  const categories = Array.from(new Set(prompts.map(p => p.category).filter(c => c && c !== 'root'))) as string[];
+  const { data, error } = await supabase.from('prompts').select('category');
+  if (error) {
+    console.error('Error fetching categories:', error);
+    return [];
+  }
+  const categories = Array.from(new Set(data.map(p => p.category).filter(c => c && c !== 'root'))) as string[];
+  categories.sort((a, b) => a.localeCompare(b));
   return categories.map(c => ({ id: c, name: c }));
 };
 
