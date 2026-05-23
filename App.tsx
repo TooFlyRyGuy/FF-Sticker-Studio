@@ -32,7 +32,7 @@ const App: React.FC = () => {
   const [prompt, setPrompt] = useState<string>("");
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
   const [imageSize, setImageSize] = useState<ImageSize>(ImageSize.ONE_K);
-  const [selectedModel, setSelectedModel] = useState<ModelType>(ModelType.PRO);
+  const [selectedModel, setSelectedModel] = useState<ModelType>(ModelType.FLASH_3_1);
 
   // Saved Prompts Management
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
@@ -503,8 +503,8 @@ const App: React.FC = () => {
                     className="w-full bg-app-bg border border-app-border rounded-lg px-4 py-2.5 text-white focus:ring-1 focus:ring-app-accent focus:border-app-accent outline-none transition-all text-sm"
                   >
                     <option value={ModelType.FLASH}>Nano Banana 2.5 Flash (Fast & Free)</option>
-                    <option value={ModelType.FLASH_3_1}>Gemini 3.1 Flash Preview (High Quality)</option>
-                    <option value={ModelType.PRO}>Nano Banana 3.0 Pro (High Fidelity - Paid Key Required)</option>
+                    <option value={ModelType.FLASH_3_1}>Gemini 3.1 Flash (High Quality)</option>
+                    <option value={ModelType.PRO}>Nano Banana 3.0 Pro (High Fidelity)</option>
                   </select>
                 </div>
                 <div>
