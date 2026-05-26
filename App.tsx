@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Copy } from 'lucide-react';
+
 import Header from './components/Header';
 import Button from './components/Button';
 import NotificationContainer from './components/NotificationToast';
@@ -113,6 +115,13 @@ const App: React.FC = () => {
   const handleAssistantApply = (newPrompt: string) => {
       setPrompt(newPrompt);
       addNotification('success', 'Prompt updated from Assistant!');
+  };
+
+  const handleCopyPrompt = () => {
+    if (prompt) {
+      navigator.clipboard.writeText(prompt);
+      addNotification('success', 'Prompt copied to clipboard!');
+    }
   };
 
   const handleSelectPrompt = async (savedPrompt: SavedPrompt) => {
@@ -438,7 +447,14 @@ const App: React.FC = () => {
                   >
                       ✨ Assistant
                   </button>
-                  <button 
+                  <button
+                    onClick={handleCopyPrompt}
+                    className="text-[10px] uppercase tracking-wider font-bold bg-app-border hover:bg-app-border/80 text-app-text px-3 py-1.5 rounded border border-app-border transition-colors flex items-center justify-center p-1.5"
+                    title="Copy Prompt"
+                  >
+                    <Copy size={12} />
+                  </button>
+                  <button
                     onClick={() => setIsLibraryOpen(true)}
                     className="text-[10px] uppercase tracking-wider font-bold bg-app-border hover:bg-app-border/80 text-app-text px-3 py-1.5 rounded border border-app-border transition-colors"
                   >
