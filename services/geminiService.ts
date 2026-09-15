@@ -88,6 +88,8 @@ export const generatePromptIdeas = async (currentPrompt: string, instruction: st
     if (!response.ok) throw new Error("Failed to fetch ideas from server");
 
     const data = await response.json();
+    if (data.error) throw new Error(data.error);
+
     // Parse the text from the server response (which is a JSON string from Gemini)
     const parsed = JSON.parse(data.text);
     if (Array.isArray(parsed)) {

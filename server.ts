@@ -3,6 +3,7 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import process from "process";
 import fs from "fs";
+import OpenAI from "openai";
 
 import { GoogleGenAI } from "@google/genai";
 
@@ -126,16 +127,28 @@ USER PROMPT: ${prompt}`;
   // Ideas endpoint
   app.post("/api/gemini/ideas", async (req, res) => {
     const { currentPrompt, instruction } = req.body;
-    const apiKey = (process.env.NEWGEMINI_API_KEY || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY || "").trim();
+    const apiKey = (process.env.OPENAI_API_KEY || "").trim();
+    
+    if (!apiKey) {
+      console.error("[OpenAI] API key is missing");
+      return res.status(500).json({ error: "OpenAI API key is not configured." });
+    }
+    
+    console.log("[OpenAI] Initializing with key prefix:", apiKey.substring(0, 5) + "...");
     
     try {
-      const genAI = new GoogleGenAI({ apiKey });
+      const openai = new OpenAI({ 
+        apiKey,
+        baseURL: "https://api.openai.com/v1"
+      });
       const systemInstruction = `You are an expert AI image prompt engineer. 
-      Your task is to generate 3 distinct, high-quality, and detailed image generation prompts based on the user's input.
+      Your task is to generate 3 distinct, high-quality, and highly detailed image generation prompts based on the user's input.
       
-      CRITICAL RULES FOR EVERY PROMPT:
-      1. Every prompt MUST begin exactly with the phrase: "Subject(s) from the source photo depicted as, or transformed into"
-      2. Every prompt MUST include the phrase: "Preserve exact facial identity from the source image and subtly enhance attractiveness"
+      GUIDELINES FOR EVERY PROMPT:
+      1. COMPREHENSIVE DETAIL: Write extremely rich, descriptive, and lengthy prompts. Do not be brief. Elaborate on every aspect of the scene, including lighting, camera specs, atmosphere, texture, and material details.
+      2. PRESERVATION: Heavily incorporate and retain the core concepts, subjects, and intent from the original prompt. Do not discard user-provided details.
+      3. FACIAL IDENTITY: CRITICAL: Preserve the facial identity of the person or persons in the source photo if applicable.
+      4. VARIATION: The 3 variations must be meaningfully distinct—different times of day, different sub-styles, or different emotional tones—while still anchored to the original subject matter.
       
       Output format: JSON Array of strings.`;
 
@@ -143,41 +156,86 @@ USER PROMPT: ${prompt}`;
         ? `Original Prompt: "${currentPrompt}"\n\nTask: Rewrite or enhance the original prompt based on this instruction: "${instruction}".\nProvide 3 distinct variations.`
         : `Task: Generate 3 creative image prompts based on this idea: "${instruction}".`;
 
-      const response = await genAI.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: userContent,
-        config: {
-          systemInstruction,
-          responseMimeType: 'application/json',
-        }
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: systemInstruction },
+          { role: 'user', content: userContent }
+        ],
+        response_format: { type: "json_object" }
       });
 
-      res.json({ text: response.text });
+      const content = completion.choices[0].message.content;
+      if (!content) {
+        throw new Error("AI returned an empty response.");
+      }
+
+      // Sanitize the response: remove markdown code blocks if present
+      let sanitizedText = content.trim();
+      if (sanitizedText.startsWith('```json')) {
+        sanitizedText = sanitizedText.substring(7);
+      }
+      if (sanitizedText.startsWith('```')) {
+        sanitizedText = sanitizedText.substring(3);
+      }
+      if (sanitizedText.endsWith('```')) {
+        sanitizedText = sanitizedText.substring(0, sanitizedText.length - 3);
+      }
+      sanitizedText = sanitizedText.trim();
+      
+      res.json({ text: sanitizedText });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      console.error("[OpenAI Ideas] Error:", e);
+      res.status(500).json({ error: e.message || "Failed to generate ideas" });
     }
   });
 
   // Metadata endpoint
   app.post("/api/gemini/metadata", async (req, res) => {
     const { prompt } = req.body;
-    const apiKey = (process.env.NEWGEMINI_API_KEY || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY || "").trim();
+    const apiKey = (process.env.OPENAI_API_KEY || "").trim();
+    
+    if (!apiKey) {
+      console.error("[OpenAI] API key is missing");
+      return res.status(500).json({ error: "OpenAI API key is not configured." });
+    }
+    
+    console.log("[OpenAI] Initializing Metadata with key prefix:", apiKey.substring(0, 5) + "...");
     
     try {
-      const genAI = new GoogleGenAI({ apiKey });
-      const systemInstruction = `You are an AI assistant that helps categorize and create metadata for image generation prompts. Output JSON with: name, description, category, tags.`;
+      const openai = new OpenAI({ 
+        apiKey,
+        baseURL: "https://api.openai.com/v1"
+      });
+      const systemInstruction = `You are an AI assistant that helps categorize and create metadata for image generation prompts. Description MUST be 5-10 words maximum. Output JSON with: name, description, category, tags.`;
 
-      const response = await genAI.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: `Generate metadata for: "${prompt}"`,
-        config: {
-          systemInstruction,
-          responseMimeType: 'application/json',
-        }
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: systemInstruction },
+          { role: 'user', content: `Generate metadata for: "${prompt}"` }
+        ],
+        response_format: { type: "json_object" }
       });
 
-      res.json({ text: response.text });
+      const content = completion.choices[0].message.content;
+      
+      // Sanitize the response: remove markdown code blocks if present
+      let sanitizedText = content ? content.trim() : "";
+      if (sanitizedText.startsWith('```json')) {
+        sanitizedText = sanitizedText.substring(7);
+      }
+      if (sanitizedText.startsWith('```')) {
+        sanitizedText = sanitizedText.substring(3);
+      }
+      if (sanitizedText.endsWith('```')) {
+        sanitizedText = sanitizedText.substring(0, sanitizedText.length - 3);
+      }
+      sanitizedText = sanitizedText.trim();
+      
+      res.json({ text: sanitizedText });
     } catch (e: any) {
+      console.error("[OpenAI Metadata] Error:", e);
       res.status(500).json({ error: e.message });
     }
   });

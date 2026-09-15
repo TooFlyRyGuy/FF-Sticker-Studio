@@ -409,7 +409,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-app-bg text-app-text font-sans selection:bg-app-accent/30">
+    <div className="min-h-screen bg-app-bg text-app-text font-sans selection:bg-app-accent/30 w-full overflow-x-hidden">
       <Header />
       <NotificationContainer notifications={notifications} removeNotification={removeNotification} />
 
@@ -419,8 +419,6 @@ const App: React.FC = () => {
         onSelectPrompt={handleSelectPrompt} 
       />
 
-
-
       <PromptAssistant
         isOpen={isAssistantOpen}
         onClose={() => setIsAssistantOpen(false)}
@@ -428,44 +426,45 @@ const App: React.FC = () => {
         onApplyPrompt={handleAssistantApply}
       />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <main className="w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 lg:gap-8 w-full">
           {/* Controls Column */}
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-6 w-full min-w-0">
             {/* The Prompt */}
-            <div className="bg-app-surface rounded-xl border border-app-border p-6 shadow-2xl shadow-black/50 space-y-4 relative">
-              <h2 className="text-lg font-semibold text-white mb-2 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="bg-app-bg w-7 h-7 rounded flex items-center justify-center text-xs font-mono text-app-accent border border-app-border">01</span>
-                  The Prompt
+            <div className="bg-app-surface rounded-xl border border-app-border p-4 sm:p-6 shadow-2xl shadow-black/50 space-y-4 relative w-full min-w-0">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <span className="bg-app-bg w-6 h-6 sm:w-7 sm:h-7 rounded flex items-center justify-center text-xs font-mono text-app-accent border border-app-border flex-shrink-0">01</span>
+                  <h2 className="text-base sm:text-lg font-semibold text-white">The Prompt</h2>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
                   <button
-                      onClick={() => setIsAssistantOpen(true)}
-                      className="text-[10px] uppercase tracking-wider font-bold bg-app-accent hover:bg-app-accentHover text-white px-3 py-1.5 rounded flex items-center gap-1 shadow-md shadow-app-accent/20 transition-colors"
-                      title="AI Prompt Assistant"
+                    onClick={() => setIsAssistantOpen(true)}
+                    className="text-[10px] uppercase tracking-wider font-bold bg-app-accent hover:bg-app-accentHover text-white px-2.5 sm:px-3 py-1.5 rounded flex items-center gap-1 shadow-md shadow-app-accent/20 transition-colors"
+                    title="AI Prompt Assistant"
                   >
-                      ✨ Assistant
+                    ✨ Assistant
                   </button>
                   <button
                     onClick={handleCopyPrompt}
-                    className="text-[10px] uppercase tracking-wider font-bold bg-app-border hover:bg-app-border/80 text-app-text px-3 py-1.5 rounded border border-app-border transition-colors flex items-center justify-center p-1.5"
+                    className="text-[10px] uppercase tracking-wider font-bold bg-app-bg hover:bg-app-border/80 text-app-text px-2.5 py-1.5 rounded border border-app-border transition-colors flex items-center gap-1"
                     title="Copy Prompt"
                   >
                     <Copy size={12} />
+                    <span className="hidden xs:inline">Copy</span>
                   </button>
                   <button
                     onClick={() => setIsLibraryOpen(true)}
-                    className="text-[10px] uppercase tracking-wider font-bold bg-app-border hover:bg-app-border/80 text-app-text px-3 py-1.5 rounded border border-app-border transition-colors"
+                    className="text-[10px] uppercase tracking-wider font-bold bg-app-bg hover:bg-app-border/80 text-app-text px-2.5 sm:px-3 py-1.5 rounded border border-app-border transition-colors"
                   >
                     Library
                   </button>
                 </div>
-              </h2>
+              </div>
               
-              <div>
+              <div className="w-full">
                 {activePromptId && (
-                  <div className="mb-2 text-[10px] text-app-accent bg-app-accent/10 px-2 py-0.5 rounded border border-app-accent/20 inline-block">
+                  <div className="mb-2 text-[10px] text-app-accent bg-app-accent/10 px-2 py-0.5 rounded border border-app-accent/20 inline-block truncate max-w-full">
                     Editing: {activePromptName}
                   </div>
                 )}
@@ -473,18 +472,18 @@ const App: React.FC = () => {
                   value={prompt}
                   onChange={handlePromptChange}
                   placeholder={referenceImage ? "Describe how you want to modify the source image using the reference..." : "Describe how you want to modify the image..."}
-                  className="w-full bg-app-bg border border-app-border rounded-lg px-4 py-3 text-white focus:ring-1 focus:ring-app-accent focus:border-app-accent outline-none min-h-[140px] resize-none text-base font-sans"
+                  className="w-full bg-app-bg border border-app-border rounded-lg px-3 sm:px-4 py-2.5 sm:py-3 text-white focus:ring-1 focus:ring-app-accent focus:border-app-accent outline-none min-h-[120px] sm:min-h-[140px] resize-none text-sm sm:text-base font-sans"
                 />
               </div>
             </div>
 
             {/* Upload Images */}
-            <div className="bg-app-surface rounded-xl border border-app-border p-6 shadow-2xl shadow-black/50">
-              <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-3">
-                <span className="bg-app-bg w-7 h-7 rounded flex items-center justify-center text-xs font-mono text-app-accent border border-app-border">02</span>
+            <div className="bg-app-surface rounded-xl border border-app-border p-4 sm:p-6 shadow-2xl shadow-black/50 w-full min-w-0">
+              <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4 flex items-center gap-2 sm:gap-3">
+                <span className="bg-app-bg w-6 h-6 sm:w-7 sm:h-7 rounded flex items-center justify-center text-xs font-mono text-app-accent border border-app-border flex-shrink-0">02</span>
                 Upload Images
               </h2>
-              <div className="space-y-4">
+              <div className="space-y-4 w-full">
                 <ImageUpload 
                   label="Source Image" 
                   image={sourceImage}
@@ -502,21 +501,22 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            <div className="bg-app-surface rounded-xl border border-app-border p-6 shadow-2xl shadow-black/50 space-y-6">
-              <h2 className="text-lg font-semibold text-white flex items-center gap-3">
-                <span className="bg-app-bg w-7 h-7 rounded flex items-center justify-center text-xs font-mono text-app-accent border border-app-border">03</span>
+            {/* Configuration */}
+            <div className="bg-app-surface rounded-xl border border-app-border p-4 sm:p-6 shadow-2xl shadow-black/50 space-y-4 sm:space-y-6 w-full min-w-0">
+              <h2 className="text-base sm:text-lg font-semibold text-white flex items-center gap-2 sm:gap-3">
+                <span className="bg-app-bg w-6 h-6 sm:w-7 sm:h-7 rounded flex items-center justify-center text-xs font-mono text-app-accent border border-app-border flex-shrink-0">03</span>
                 Configuration
               </h2>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <div className="flex items-center justify-between mb-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 w-full">
+                <div className="col-span-1 sm:col-span-2">
+                  <div className="flex items-center justify-between mb-1.5">
                     <label className="block text-xs font-mono uppercase tracking-wider text-app-muted">Model</label>
                   </div>
                   <select 
                     value={selectedModel}
                     onChange={(e) => setSelectedModel(e.target.value as ModelType)}
-                    className="w-full bg-app-bg border border-app-border rounded-lg px-4 py-2.5 text-white focus:ring-1 focus:ring-app-accent focus:border-app-accent outline-none transition-all text-sm"
+                    className="w-full bg-app-bg border border-app-border rounded-lg px-3 sm:px-4 py-2 sm:py-2.5 text-white focus:ring-1 focus:ring-app-accent focus:border-app-accent outline-none transition-all text-xs sm:text-sm"
                   >
                     <option value={ModelType.FLASH}>Nano Banana 2.5 Flash (Fast & Free)</option>
                     <option value={ModelType.FLASH_3_1}>Gemini 3.1 Flash (High Quality)</option>
@@ -524,13 +524,15 @@ const App: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-mono uppercase tracking-wider text-app-muted mb-2">Aspect Ratio</label>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-app-muted mb-1.5">Aspect Ratio</label>
                   <select 
                     value={aspectRatio}
                     onChange={(e) => setAspectRatio(e.target.value as AspectRatio)}
-                    className="w-full bg-app-bg border border-app-border rounded-lg px-4 py-2.5 text-white focus:ring-1 focus:ring-app-accent focus:border-app-accent outline-none transition-all text-sm"
+                    className="w-full bg-app-bg border border-app-border rounded-lg px-3 sm:px-4 py-2 sm:py-2.5 text-white focus:ring-1 focus:ring-app-accent focus:border-app-accent outline-none transition-all text-xs sm:text-sm"
                   >
                     <option value={AspectRatio.SQUARE}>1:1 (Square)</option>
+                    <option value={AspectRatio.THREE_TWO}>3:2 (Photo / Landscape)</option>
+                    <option value={AspectRatio.TWO_THREE}>2:3 (Photo / Portrait)</option>
                     <option value={AspectRatio.LANDSCAPE}>16:9 (Landscape)</option>
                     <option value={AspectRatio.PORTRAIT}>9:16 (Portrait)</option>
                     <option value={AspectRatio.STANDARD_LANDSCAPE}>4:3 (Standard)</option>
@@ -538,11 +540,11 @@ const App: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-mono uppercase tracking-wider text-app-muted mb-2">Quality</label>
+                  <label className="block text-xs font-mono uppercase tracking-wider text-app-muted mb-1.5">Quality</label>
                   <select 
                     value={imageSize}
                     onChange={(e) => setImageSize(e.target.value as ImageSize)}
-                    className="w-full bg-app-bg border border-app-border rounded-lg px-4 py-2.5 text-white focus:ring-1 focus:ring-app-accent focus:border-app-accent outline-none transition-all text-sm"
+                    className="w-full bg-app-bg border border-app-border rounded-lg px-3 sm:px-4 py-2 sm:py-2.5 text-white focus:ring-1 focus:ring-app-accent focus:border-app-accent outline-none transition-all text-xs sm:text-sm"
                   >
                     <option value={ImageSize.ONE_K}>1K (Fast)</option>
                     <option value={ImageSize.TWO_K}>2K (High Quality)</option>
@@ -552,8 +554,8 @@ const App: React.FC = () => {
               </div>
 
               {referenceImage && (
-                <div className="bg-app-bg/50 p-4 rounded-lg border border-app-border">
-                  <div className="flex justify-between mb-3">
+                <div className="bg-app-bg/50 p-3 sm:p-4 rounded-lg border border-app-border">
+                  <div className="flex justify-between mb-2 sm:mb-3">
                     <label className="text-xs font-mono uppercase tracking-wider text-app-muted">Reference Influence</label>
                     <span className="text-xs font-mono font-bold text-app-accent">{refStrength}%</span>
                   </div>
@@ -571,26 +573,26 @@ const App: React.FC = () => {
           </div>
 
           {/* Results Column */}
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-6 w-full min-w-0">
             <Button 
               onClick={handleGenerate} 
               isLoading={status.isLoading}
               disabled={!prompt}
-              className="w-full bg-app-accent hover:bg-app-accentHover text-white font-semibold tracking-wide uppercase text-lg rounded-xl py-4 shadow-xl shadow-app-accent/20 transition-all active:scale-[0.98]"
+              className="w-full bg-app-accent hover:bg-app-accentHover text-white font-semibold tracking-wide uppercase text-base sm:text-lg rounded-xl py-3.5 sm:py-4 shadow-xl shadow-app-accent/20 transition-all active:scale-[0.98]"
             >
               {status.isLoading ? 'Generating...' : 'Generate Image'}
             </Button>
 
-             <div className="bg-app-surface rounded-xl border border-app-border p-6 shadow-2xl shadow-black/50 min-h-[500px] flex flex-col">
-              <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-3">
-                <span className="bg-app-bg w-7 h-7 rounded flex items-center justify-center text-xs font-mono text-app-accent border border-app-border">04</span>
+            <div className="bg-app-surface rounded-xl border border-app-border p-4 sm:p-6 shadow-2xl shadow-black/50 min-h-[400px] sm:min-h-[500px] flex flex-col w-full min-w-0">
+              <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4 flex items-center gap-2 sm:gap-3">
+                <span className="bg-app-bg w-6 h-6 sm:w-7 sm:h-7 rounded flex items-center justify-center text-xs font-mono text-app-accent border border-app-border flex-shrink-0">04</span>
                 Result
               </h2>
 
-              <div className="flex-grow flex items-center justify-center bg-app-bg rounded-lg border border-app-border relative overflow-hidden min-h-[400px]">
+              <div className="flex-grow flex items-center justify-center bg-app-bg rounded-lg border border-app-border relative overflow-hidden min-h-[260px] sm:min-h-[400px]">
                 {status.isLoading && (
-                   <div className="absolute inset-0 z-20 bg-app-bg/80 backdrop-blur-sm flex flex-col items-center justify-center gap-4 animate-fadeIn">
-                     <div className="w-12 h-12 border-2 border-app-accent border-t-transparent rounded-full animate-spin"></div>
+                   <div className="absolute inset-0 z-20 bg-app-bg/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3 sm:gap-4 animate-fadeIn p-4 text-center">
+                     <div className="w-10 h-10 sm:w-12 sm:h-12 border-2 border-app-accent border-t-transparent rounded-full animate-spin"></div>
                      <p className="text-app-accent font-mono text-xs uppercase tracking-widest animate-pulse">{status.progress || 'Processing...'}</p>
                    </div>
                 )}
@@ -599,29 +601,30 @@ const App: React.FC = () => {
                   <img 
                     src={generatedImage} 
                     alt="Generated" 
-                    className={`max-w-full max-h-[600px] object-contain shadow-2xl transition-all duration-300 ${status.isLoading ? 'scale-95 opacity-50 blur-sm' : 'animate-fadeIn'}`} 
+                    className={`max-w-full max-h-[500px] sm:max-h-[600px] object-contain shadow-2xl transition-all duration-300 ${status.isLoading ? 'scale-95 opacity-50 blur-sm' : 'animate-fadeIn'}`} 
                   />
                 ) : (
                    !status.isLoading && (
-                    <div className="text-center p-8 opacity-30 font-mono text-xs uppercase tracking-widest">
+                    <div className="text-center p-6 sm:p-8 opacity-30 font-mono text-xs uppercase tracking-widest">
                       <p>Awaiting Input</p>
                     </div>
                    )
                 )}
               </div>
 
-              <div className="mt-6 flex flex-col gap-4">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-semibold text-white uppercase tracking-wider font-mono">Prompt Metadata</h3>
+              <div className="mt-4 sm:mt-6 flex flex-col gap-3 sm:gap-4">
+                <div className="flex items-center justify-between mb-1">
+                  <h3 className="text-xs sm:text-sm font-semibold text-white uppercase tracking-wider font-mono">Prompt Metadata</h3>
                   <button 
                     onClick={handleAutoFillOrClearMetadata}
-                    className="text-xs font-mono uppercase tracking-wider text-app-accent hover:text-white transition-colors bg-app-accent/10 hover:bg-app-accent/20 px-3 py-1.5 rounded border border-app-accent/20 flex items-center gap-2"
+                    className="text-[11px] sm:text-xs font-mono uppercase tracking-wider text-app-accent hover:text-white transition-colors bg-app-accent/10 hover:bg-app-accent/20 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded border border-app-accent/20 flex items-center gap-1.5"
                   >
                     <span>✨</span>
                     {(prompt || activePromptName || activePromptDescription || activePromptCategory || activePromptTags) ? 'Clear All' : 'Auto-fill'}
                   </button>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 w-full">
                   <div>
                     <label className="block text-xs font-mono uppercase tracking-wider text-app-muted mb-1">Name <span className="text-red-400">*</span></label>
                     <input 
@@ -632,12 +635,12 @@ const App: React.FC = () => {
                         if (validationErrors.name) setValidationErrors(prev => ({ ...prev, name: false }));
                       }}
                       placeholder="e.g., Cyberpunk Cityscape"
-                      className={`w-full bg-app-bg border ${validationErrors.name ? 'border-red-500 bg-red-500/5' : 'border-app-border'} rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-sm transition-colors`}
+                      className={`w-full bg-app-bg border ${validationErrors.name ? 'border-red-500 bg-red-500/5' : 'border-app-border'} rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-xs sm:text-sm transition-colors`}
                     />
                   </div>
                   <div>
                     <label className="block text-xs font-mono uppercase tracking-wider text-app-muted mb-1">Category <span className="text-red-400">*</span></label>
-                    <div className="flex gap-2">
+                    <div className="flex flex-col xs:flex-row gap-2">
                       <select
                         value={isNewCategory ? "_new_" : activePromptCategory}
                         onChange={(e) => {
@@ -650,7 +653,7 @@ const App: React.FC = () => {
                             setActivePromptCategory(e.target.value);
                           }
                         }}
-                        className={`bg-app-bg border ${validationErrors.category && !isNewCategory ? 'border-red-500 bg-red-500/5' : 'border-app-border'} rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-sm transition-colors ${isNewCategory ? 'w-[140px]' : 'w-full'}`}
+                        className={`bg-app-bg border ${validationErrors.category && !isNewCategory ? 'border-red-500 bg-red-500/5' : 'border-app-border'} rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-xs sm:text-sm transition-colors ${isNewCategory ? 'w-full xs:w-[130px]' : 'w-full'}`}
                       >
                        <option value="_new_">+ Create New...</option>
                        {activePromptCategory && !categories.find(c => c.name === activePromptCategory) && !isNewCategory && (
@@ -669,13 +672,13 @@ const App: React.FC = () => {
                             setActivePromptCategory(e.target.value);
                             if (validationErrors.category) setValidationErrors(prev => ({ ...prev, category: false }));
                           }}
-                          placeholder="New category"
-                          className={`flex-1 min-w-0 bg-app-bg border ${validationErrors.category && isNewCategory ? 'border-red-500 bg-red-500/5' : 'border-app-border'} rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-sm transition-colors`}
+                          placeholder="New category name"
+                          className={`w-full flex-1 min-w-0 bg-app-bg border ${validationErrors.category && isNewCategory ? 'border-red-500 bg-red-500/5' : 'border-app-border'} rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-xs sm:text-sm transition-colors`}
                         />
                       )}
                     </div>
                   </div>
-                  <div className="col-span-2">
+                  <div className="col-span-1 sm:col-span-2">
                     <label className="block text-xs font-mono uppercase tracking-wider text-app-muted mb-1">Description <span className="text-red-400">*</span></label>
                     <textarea 
                       value={activePromptDescription} 
@@ -684,7 +687,7 @@ const App: React.FC = () => {
                         if (validationErrors.description) setValidationErrors(prev => ({ ...prev, description: false }));
                       }}
                       placeholder="Briefly describe what this prompt does..."
-                      className={`w-full bg-app-bg border ${validationErrors.description ? 'border-red-500 bg-red-500/5' : 'border-app-border'} rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-sm resize-none min-h-[60px] transition-colors`}
+                      className={`w-full bg-app-bg border ${validationErrors.description ? 'border-red-500 bg-red-500/5' : 'border-app-border'} rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-xs sm:text-sm resize-none min-h-[60px] transition-colors`}
                     />
                   </div>
                   <div>
@@ -694,20 +697,20 @@ const App: React.FC = () => {
                       value={activePromptTags} 
                       onChange={(e) => setActivePromptTags(e.target.value)}
                       placeholder="e.g., neon, futuristic"
-                      className="w-full bg-app-bg border border-app-border rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-sm"
+                      className="w-full bg-app-bg border border-app-border rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-xs sm:text-sm"
                     />
                   </div>
                   <div>
                     <label className="block text-xs font-mono uppercase tracking-wider text-app-muted mb-1">Visibility</label>
-                    <div className="flex bg-app-bg border border-app-border rounded-lg overflow-hidden h-[38px]">
+                    <div className="flex bg-app-bg border border-app-border rounded-lg overflow-hidden h-[36px] sm:h-[38px]">
                       <button
-                        className={`flex-1 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors ${activePromptIsPublic ? 'bg-app-accent text-white' : 'text-app-muted hover:bg-app-surface'}`}
+                        className={`flex-1 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors ${activePromptIsPublic ? 'bg-app-accent text-white font-bold' : 'text-app-muted hover:bg-app-surface'}`}
                         onClick={() => setActivePromptIsPublic(true)}
                       >
                         Public
                       </button>
                       <button
-                        className={`flex-1 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors ${!activePromptIsPublic ? 'bg-amber-600 text-white' : 'text-app-muted hover:bg-app-surface'}`}
+                        className={`flex-1 py-1 font-mono text-[10px] uppercase tracking-wider transition-colors ${!activePromptIsPublic ? 'bg-amber-600 text-white font-bold' : 'text-app-muted hover:bg-app-surface'}`}
                         onClick={() => setActivePromptIsPublic(false)}
                       >
                         Private
@@ -716,11 +719,12 @@ const App: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="flex justify-between mt-2 pt-4 border-t border-app-border">
-                  <div className="flex gap-3">
+                <div className="flex flex-col sm:flex-row gap-2.5 sm:justify-between mt-2 pt-4 border-t border-app-border">
+                  <div className="flex flex-col xs:flex-row gap-2 sm:gap-3 w-full sm:w-auto">
                     <Button 
                       onClick={handleSaveClick}
                       variant="primary"
+                      className="w-full xs:w-auto text-xs py-2.5 sm:py-3"
                     >
                       {activePromptId ? 'Update Prompt' : 'Save New Prompt'}
                     </Button>
@@ -728,6 +732,7 @@ const App: React.FC = () => {
                       <Button 
                         onClick={handleSaveAsNewClick}
                         variant="secondary"
+                        className="w-full xs:w-auto text-xs py-2.5 sm:py-3"
                       >
                         Save As New
                       </Button>
@@ -737,6 +742,7 @@ const App: React.FC = () => {
                     onClick={handleDownload} 
                     disabled={!generatedImage || status.isLoading}
                     variant="secondary"
+                    className="w-full sm:w-auto text-xs py-2.5 sm:py-3"
                   >
                     Download Result
                   </Button>

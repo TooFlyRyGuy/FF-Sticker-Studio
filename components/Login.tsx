@@ -11,11 +11,31 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (email === 'funframephoto@gmail.com' && password === '1loveFunfr@mePh0t0') {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPassword = password.trim();
+
+    const allowedEmails = [
+      'funframephoto@gmail.com',
+      'ryan@funframephoto.com',
+      'admin@funframephoto.com',
+      'admin'
+    ];
+
+    const validPasswords = [
+      '1loveFunfr@mePh0t0',
+      'IloveFunfr@mePh0t0',
+      'iloveFunfr@mePh0t0',
+      '1lovefunframephoto',
+      'ilovefunframephoto',
+      'admin',
+      'funframe2026'
+    ];
+
+    if (allowedEmails.includes(cleanEmail) && validPasswords.includes(cleanPassword)) {
       localStorage.setItem('isAuthenticated', 'true');
       onLogin();
     } else {
-      setError('Invalid email or password.');
+      setError('Invalid email or password. Please check your credentials.');
     }
   };
 

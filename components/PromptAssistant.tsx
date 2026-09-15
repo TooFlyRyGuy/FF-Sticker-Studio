@@ -10,12 +10,14 @@ interface PromptAssistantProps {
 }
 
 const QUICK_ACTIONS = [
-  "Enhance Details",
-  "Cinematic Lighting",
-  "Photorealistic",
-  "Cyberpunk Style",
-  "Surrealism",
-  "Fix Grammar"
+  { label: "Cinematic Scene", instruction: "Transform into a dramatic movie still — deep shadows, anamorphic lens flare, golden-hour or blue-hour lighting, cinematic color grade, wide-angle composition" },
+  { label: "Fantasy / Epic", instruction: "Place subjects in a sweeping fantasy world — ancient ruins, magical atmosphere, dramatic storm clouds or aurora skies, epic scale, painterly style" },
+  { label: "Illustrated / Cartoon", instruction: "Reimagine as an animated or illustrated artwork — choose from comic book ink and halftone, Pixar-style 3D animation, hand-drawn anime, graphic novel cel shading, or bold pop-art illustration" },
+  { label: "Studio Portrait", instruction: "Refined studio portrait — seamless backdrop, Rembrandt or butterfly lighting, shallow depth of field, rich skin tones, fashion magazine aesthetic" },
+  { label: "Vintage / Film", instruction: "Nostalgic analog film look — grain, light leaks, faded warm tones, 1970s or 1980s aesthetic, Kodachrome or Polaroid color palette" },
+  { label: "Nature / Outdoors", instruction: "Immerse subjects in a dramatic natural environment — misty mountain peaks, golden meadow, dense forest, crashing ocean shore, natural dappled light" },
+  { label: "Abstract / Artistic", instruction: "Painterly or illustrated interpretation — oil painting, watercolor, impressionist brushstrokes, bold color palette, artistic texture, gallery art style" },
+  { label: "Dark & Moody", instruction: "Low-key dramatic atmosphere — near-black shadows, single hard rim light, desaturated tones with one accent color, fog or smoke, noir or gothic mood" }
 ];
 
 const PromptAssistant: React.FC<PromptAssistantProps> = ({ isOpen, onClose, currentPrompt, onApplyPrompt }) => {
@@ -46,31 +48,31 @@ const PromptAssistant: React.FC<PromptAssistantProps> = ({ isOpen, onClose, curr
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-app-bg/90 backdrop-blur-sm animate-fadeIn">
-      <div className="bg-app-surface w-full max-w-2xl rounded-xl border border-app-border shadow-2xl flex flex-col max-h-[85vh]">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-4 bg-app-bg/90 backdrop-blur-sm animate-fadeIn">
+      <div className="bg-app-surface w-full max-w-2xl rounded-xl border border-app-border shadow-2xl flex flex-col max-h-[92vh] sm:max-h-[85vh] overflow-hidden">
         
         {/* Header */}
-        <div className="p-6 border-b border-app-border flex justify-between items-center">
-          <div className="flex items-center gap-3">
-             <div className="w-10 h-10 rounded bg-app-accent flex items-center justify-center shadow-lg shadow-app-accent/20">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-app-bg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="p-4 sm:p-6 border-b border-app-border flex justify-between items-center flex-shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+             <div className="w-8 h-8 sm:w-10 sm:h-10 rounded bg-app-accent flex items-center justify-center shadow-lg shadow-app-accent/20 flex-shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 sm:h-6 sm:w-6 text-app-bg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
              </div>
              <div>
-                <h3 className="text-sm font-mono uppercase tracking-wider font-bold text-white">Prompt Assistant</h3>
-                <p className="text-[10px] font-mono uppercase tracking-widest text-app-muted">Powered by Gemini</p>
+                <h3 className="text-xs sm:text-sm font-mono uppercase tracking-wider font-bold text-white">Prompt Assistant</h3>
+                <p className="text-[9px] sm:text-[10px] font-mono uppercase tracking-widest text-app-muted">Powered by Gemini</p>
              </div>
           </div>
-          <button onClick={onClose} className="text-app-muted hover:text-white transition-colors">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <button onClick={onClose} className="text-app-muted hover:text-white transition-colors p-1">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 sm:h-6 sm:w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto flex-1 space-y-6">
+        <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-4 sm:space-y-6">
           
           {/* Input Section */}
           <div className="space-y-4">
@@ -107,15 +109,15 @@ const PromptAssistant: React.FC<PromptAssistantProps> = ({ isOpen, onClose, curr
                 <div className="flex flex-wrap gap-2">
                     {QUICK_ACTIONS.map(action => (
                         <button
-                            key={action}
+                            key={action.label}
                             onClick={() => {
-                                setInstruction(action);
-                                handleGenerate(action);
+                                setInstruction(action.instruction);
+                                handleGenerate(action.instruction);
                             }}
                             disabled={isLoading}
                             className="text-[10px] font-mono uppercase tracking-wider bg-app-bg hover:bg-app-accent/20 hover:text-app-accent hover:border-app-accent/50 border border-app-border text-app-text px-3 py-1.5 rounded transition-all"
                         >
-                            {action}
+                            {action.label}
                         </button>
                     ))}
                 </div>
