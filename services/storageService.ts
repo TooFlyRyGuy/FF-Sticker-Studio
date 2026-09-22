@@ -6,17 +6,21 @@ export const getStorageMode = () => 'supabase';
 export const setStorageMode = async (mode: 'supabase') => {};
 export const initStorage = async () => {};
 
-export const getPrompts = async (): Promise<SavedPrompt[]> => {
-  const { data, error } = await supabase
+export const getPrompts = async (page: number = 0, limit: number = 24): Promise<{ prompts: SavedPrompt[], total: number }> => {
+  const from = page * limit;
+  const to = from + limit - 1;
+
+  const { data, error, count } = await supabase
     .from('prompts')
-    .select('id, name, description, category, prompt_text, preview_image_url, is_active, usage_count, created_at, updated_at, tags, is_public, user_id')
-    .order('updated_at', { ascending: false });
+    .select('id, name, description, category, prompt_text, preview_image_url, is_active, usage_count, created_at, updated_at, tags, is_public, user_id', { count: 'exact' })
+    .order('updated_at', { ascending: false })
+    .range(from, to);
 
   if (error) {
     console.error('Error fetching prompts:', error);
-    return [];
+    return { prompts: [], total: 0 };
   }
-  return data as SavedPrompt[];
+  return { prompts: (data || []) as SavedPrompt[], total: count || 0 };
 };
 
 export const getPromptById = async (id: string): Promise<SavedPrompt | null> => {

@@ -50,12 +50,12 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ isOpen, onClose, onSelect
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [loadedFolders, loadedPrompts] = await Promise.all([
+      const [loadedFolders, promptResult] = await Promise.all([
         getFolders(),
         getPrompts()
       ]);
       setFolders(loadedFolders);
-      setPrompts(loadedPrompts);
+      setPrompts(promptResult.prompts);
     } catch (e) {
       console.error("Failed to load library", e);
     } finally {
@@ -92,7 +92,7 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ isOpen, onClose, onSelect
     }
   };
 
-  const allTags = Array.from(new Set(prompts.flatMap(p => p.tags || []))).map(t => String(t)).sort((a, b) => a.localeCompare(b));
+  const allTags = Array.from(new Set((Array.isArray(prompts) ? prompts : []).flatMap(p => p.tags || []))).map(t => String(t)).sort((a, b) => a.localeCompare(b));
 
   // Count prompts per category
   const getPromptCount = (folderId: string) => {
