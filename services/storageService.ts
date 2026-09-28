@@ -70,7 +70,10 @@ export const savePrompt = async (prompt: Partial<SavedPrompt>): Promise<SavedPro
 
 export const deletePrompt = async (id: string): Promise<void> => {
   const { error } = await supabase.from('prompts').delete().eq('id', id);
-  if (error) throw error;
+  if (error) {
+    console.error('Error deleting prompt:', error);
+    throw error;
+  }
 };
 
 // Folders are just unique categories

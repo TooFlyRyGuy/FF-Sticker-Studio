@@ -8,11 +8,13 @@ import ImageUpload from './components/ImageUpload';
 import PromptLibrary from './components/PromptLibrary';
 
 import PromptAssistant from './components/PromptAssistant';
+import PromptEditor from './components/PromptEditor';
 import Login from './components/Login';
 import { stripBase64Prefix, getMimeType, getMimeTypeFromBase64, compressImageBase64 } from './utils/imageUtils';
 import { generateEditedImage, generatePromptMetadata } from './services/geminiService';
 import { savePrompt, initStorage, getFolders, getPromptById } from './services/storageService';
 import { AspectRatio, ImageSize, ModelType, ProcessingState, NotificationItem, NotificationType, SavedPrompt, Folder } from './types';
+import { PromptCustomField } from './components/PromptVariableBuilder';
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
@@ -46,6 +48,7 @@ const App: React.FC = () => {
   const [isNewCategory, setIsNewCategory] = useState<boolean>(true);
   const [activePromptDescription, setActivePromptDescription] = useState<string>("");
   const [activePromptTags, setActivePromptTags] = useState<string>("");
+  const [activePromptCustomFields, setActivePromptCustomFields] = useState<PromptCustomField[]>([]);
   const [activePromptIsPublic, setActivePromptIsPublic] = useState<boolean>(true);
   const [activePromptPreviewUrl, setActivePromptPreviewUrl] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<{name?: boolean, description?: boolean, category?: boolean}>({});
@@ -136,6 +139,7 @@ const App: React.FC = () => {
       setIsNewCategory(!cat);
       setActivePromptDescription(fullPrompt.description || "");
       setActivePromptTags(Array.isArray(fullPrompt.tags) ? fullPrompt.tags.join(', ') : (typeof fullPrompt.tags === 'string' ? fullPrompt.tags : ""));
+      setActivePromptCustomFields((fullPrompt as any).custom_fields || []);
       setActivePromptIsPublic(fullPrompt.is_public ?? true);
       setActivePromptPreviewUrl(fullPrompt.preview_image_url || null);
       setReferenceImage(fullPrompt.reference_image_url || null);
@@ -229,6 +233,7 @@ const App: React.FC = () => {
         prompt_text: prompt,
         description: activePromptDescription,
         tags: activePromptTags.split(',').map(tag => tag.trim()).filter(t => t),
+        custom_fields: activePromptCustomFields,
         category: activePromptCategory,
         is_public: activePromptIsPublic,
         preview_image_url: compressedPreview,
@@ -300,6 +305,7 @@ const App: React.FC = () => {
         prompt_text: prompt,
         description: activePromptDescription,
         tags: activePromptTags.split(',').map(tag => tag.trim()).filter(t => t),
+        custom_fields: activePromptCustomFields,
         category: activePromptCategory,
         is_public: activePromptIsPublic,
         preview_image_url: compressedPreview,
@@ -468,11 +474,11 @@ const App: React.FC = () => {
                     Editing: {activePromptName}
                   </div>
                 )}
-                <textarea
-                  value={prompt}
-                  onChange={handlePromptChange}
-                  placeholder={referenceImage ? "Describe how you want to modify the source image using the reference..." : "Describe how you want to modify the image..."}
-                  className="w-full bg-app-bg border border-app-border rounded-lg px-3 sm:px-4 py-2.5 sm:py-3 text-white focus:ring-1 focus:ring-app-accent focus:border-app-accent outline-none min-h-[120px] sm:min-h-[140px] resize-none text-sm sm:text-base font-sans"
+                <PromptEditor
+                  promptText={prompt}
+                  onPromptTextChange={setPrompt}
+                  customFields={activePromptCustomFields}
+                  onCustomFieldsChange={setActivePromptCustomFields}
                 />
               </div>
             </div>
