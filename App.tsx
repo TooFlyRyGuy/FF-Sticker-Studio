@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Copy } from 'lucide-react';
+import useDrivePicker from 'react-google-drive-picker';
 
 import Header from './components/Header';
 import Button from './components/Button';
@@ -13,6 +14,7 @@ import Login from './components/Login';
 import { stripBase64Prefix, getMimeType, getMimeTypeFromBase64, compressImageBase64 } from './utils/imageUtils';
 import { generateEditedImage, generatePromptMetadata } from './services/geminiService';
 import { savePrompt, initStorage, getFolders, getPromptById } from './services/storageService';
+import { supabase } from './services/supabaseClient';
 import { AspectRatio, ImageSize, ModelType, ProcessingState, NotificationItem, NotificationType, SavedPrompt, Folder } from './types';
 import { PromptCustomField } from './components/PromptVariableBuilder';
 
@@ -37,6 +39,26 @@ const App: React.FC = () => {
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(AspectRatio.SQUARE);
   const [imageSize, setImageSize] = useState<ImageSize>(ImageSize.ONE_K);
   const [selectedModel, setSelectedModel] = useState<ModelType>(ModelType.FLASH_3_1);
+  const [isBatchMode, setIsBatchMode] = useState<boolean>(false);
+  const [batchFiles, setBatchFiles] = useState<File[]>([]);
+  const [saveFolderId, setSaveFolderId] = useState<string | null>(null);
+
+  const [openPicker] = useDrivePicker();
+
+  const handleOpenPicker = () => {
+    openPicker({
+        clientId: '719168742960-g01123456789.apps.googleusercontent.com', // Placeholder
+        developerKey: 'YOUR_API_KEY', // Placeholder
+        viewId: 'FOLDERS',
+        callbackFunction: (data) => {
+            if (data.action === 'picked') {
+                const folder = data.docs[0];
+                setSaveFolderId(folder.id);
+                addNotification('success', `Selected folder: ${folder.name}`);
+            }
+        },
+    });
+  };
 
   // Saved Prompts Management
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
@@ -238,7 +260,7 @@ const App: React.FC = () => {
         is_public: activePromptIsPublic,
         preview_image_url: compressedPreview,
         reference_image_url: compressedReference,
-        user_id: !activePromptIsPublic ? "274f2dd5-9843-4518-872d-88c2e0f225f5" : null
+        user_id: !activePromptIsPublic ? (await supabase.auth.getUser()).data.user?.id : null
       };
 
       if (activePromptId) {
@@ -310,7 +332,7 @@ const App: React.FC = () => {
         is_public: activePromptIsPublic,
         preview_image_url: compressedPreview,
         reference_image_url: compressedReference,
-        user_id: !activePromptIsPublic ? "274f2dd5-9843-4518-872d-88c2e0f225f5" : null
+        user_id: !activePromptIsPublic ? (await supabase.auth.getUser()).data.user?.id : null
       };
 
       const newPrompt = await savePrompt(promptData);
@@ -485,18 +507,47 @@ const App: React.FC = () => {
 
             {/* Upload Images */}
             <div className="bg-app-surface rounded-xl border border-app-border p-4 sm:p-6 shadow-2xl shadow-black/50 w-full min-w-0">
-              <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4 flex items-center gap-2 sm:gap-3">
-                <span className="bg-app-bg w-6 h-6 sm:w-7 sm:h-7 rounded flex items-center justify-center text-xs font-mono text-app-accent border border-app-border flex-shrink-0">02</span>
-                Upload Images
+              <h2 className="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4 flex items-center justify-between gap-2 sm:gap-3">
+                <div className="flex items-center gap-2 sm:gap-3">
+                    <span className="bg-app-bg w-6 h-6 sm:w-7 sm:h-7 rounded flex items-center justify-center text-xs font-mono text-app-accent border border-app-border flex-shrink-0">02</span>
+                    Upload Images
+                </div>
+                <button
+                    onClick={() => setIsBatchMode(!isBatchMode)}
+                    className={`px-2 py-1 text-[10px] font-mono uppercase rounded ${isBatchMode ? 'bg-app-accent text-white' : 'bg-app-surface text-app-muted border border-app-border'}`}
+                >
+                    {isBatchMode ? 'Batch: ON' : 'Batch: OFF'}
+                </button>
               </h2>
               <div className="space-y-4 w-full">
                 <ImageUpload 
-                  label="Source Image" 
+                  label={isBatchMode ? "Select Folder / Images" : "Source Image"} 
                   image={sourceImage}
                   onImageChange={handleSourceChange}
+                  onBatchImagesChange={(files) => {
+                      setBatchFiles(files);
+                      addNotification('info', `Selected ${files.length} images for batch processing.`);
+                  }}
                   onError={handleUploadError}
                   required
+                  isBatchMode={isBatchMode}
                 />
+                {isBatchMode && batchFiles.length > 0 && (
+                    <div className="space-y-2">
+                        <button 
+                            onClick={handleOpenPicker}
+                            className={`w-full py-2 border rounded-lg text-xs uppercase font-mono ${saveFolderId ? 'bg-app-accent text-white border-app-accent' : 'bg-app-surface border-app-border text-white'}`}
+                        >
+                            {saveFolderId ? 'Folder Selected' : 'Select Save Folder'}
+                        </button>
+                        <button 
+                            onClick={() => addNotification('info', 'Submitting batch to Gemini...')}
+                            className="w-full py-2 bg-app-accent text-white font-semibold rounded-lg text-xs uppercase"
+                        >
+                            Process {batchFiles.length} Images
+                        </button>
+                    </div>
+                )}
                 <ImageUpload 
                   label="Reference Image (Optional)" 
                   image={referenceImage}

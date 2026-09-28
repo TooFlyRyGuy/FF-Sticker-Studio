@@ -1,6 +1,13 @@
 import React from 'react';
+import { supabase } from '../services/supabaseClient';
 
 const Header: React.FC = () => {
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    localStorage.removeItem('isAuthenticated');
+    window.location.reload();
+  };
+
   return (
     <header className="border-b border-app-border bg-app-bg/80 backdrop-blur-md sticky top-0 z-40 w-full">
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-14 sm:h-16 flex items-center justify-between">
@@ -17,6 +24,12 @@ const Header: React.FC = () => {
           <div className="text-[10px] sm:text-xs font-mono text-app-muted uppercase tracking-widest hidden md:block">
             Powered by Gemini
           </div>
+          <button
+            onClick={handleLogout}
+            className="text-[10px] sm:text-xs font-mono text-app-muted hover:text-white uppercase tracking-widest border border-app-border px-3 py-1.5 rounded hover:bg-app-surface transition-colors"
+          >
+            Logout
+          </button>
         </div>
       </div>
     </header>

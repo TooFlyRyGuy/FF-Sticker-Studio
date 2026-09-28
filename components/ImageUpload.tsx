@@ -5,47 +5,57 @@ interface ImageUploadProps {
   label: string;
   image: string | null;
   onImageChange: (file: File, base64: string) => void;
+  onBatchImagesChange?: (files: File[]) => void;
   onError: (message: string) => void;
   onRemove?: () => void;
   required?: boolean;
   className?: string;
+  isBatchMode?: boolean;
 }
 
 const ImageUpload: React.FC<ImageUploadProps> = ({ 
   label, 
   image, 
   onImageChange, 
+  onBatchImagesChange,
   onError, 
   onRemove,
   required = false,
-  className = ''
+  className = '',
+  isBatchMode = false
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
 
-  const processFile = async (file: File) => {
-    const error = validateImageFile(file);
-    if (error) {
-      onError(error);
-      return;
-    }
+  const processFiles = async (files: FileList | null) => {
+    if (!files) return;
 
-    setIsLoading(true);
-    try {
-      const base64 = await fileToBase64(file);
-      onImageChange(file, base64);
-    } catch (err) {
-      onError('Failed to process image file.');
-    } finally {
-      setIsLoading(false);
+    if (isBatchMode && onBatchImagesChange) {
+      const validFiles = Array.from(files).filter(file => !validateImageFile(file));
+      onBatchImagesChange(validFiles);
+    } else if (files[0]) {
+      const file = files[0];
+      const error = validateImageFile(file);
+      if (error) {
+        onError(error);
+        return;
+      }
+
+      setIsLoading(true);
+      try {
+        const base64 = await fileToBase64(file);
+        onImageChange(file, base64);
+      } catch (err) {
+        onError('Failed to process image file.');
+      } finally {
+        setIsLoading(false);
+      }
     }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      processFile(e.target.files[0]);
-    }
+    processFiles(e.target.files);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -54,9 +64,7 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      processFile(e.dataTransfer.files[0]);
-    }
+    processFiles(e.dataTransfer.files);
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -143,6 +151,8 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
           ref={fileInputRef}
           className="hidden" 
           accept="image/png, image/jpeg, image/webp, image/heic"
+          multiple={isBatchMode}
+          {...(isBatchMode ? { webkitdirectory: 'true', directory: 'true' } : {})}
           onChange={handleFileChange}
         />
       </div>

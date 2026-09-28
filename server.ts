@@ -4,12 +4,21 @@ import path from "path";
 import process from "process";
 import fs from "fs";
 import OpenAI from "openai";
+import multer from "multer";
+import { Storage } from "@google-cloud/storage";
+import { google } from "googleapis";
+const drive = google.drive;
 
 import { GoogleGenAI } from "@google/genai";
+import { createClient } from '@supabase/supabase-js';
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://ufbjphmsblgwzkofpgai.supabase.co';
+  const supabaseKey = process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_Ha-_7AikIAhQ9_8-T19HGw_jU2ePTSP';
+  const supabaseAdmin = createClient(supabaseUrl, supabaseKey);
 
   app.use(express.json({ limit: '50mb' }));
 
@@ -237,6 +246,128 @@ USER PROMPT: ${prompt}`;
     } catch (e: any) {
       console.error("[OpenAI Metadata] Error:", e);
       res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Batch job creation endpoint
+  app.post("/api/batch/create", async (req, res) => {
+    const { userId, totalFiles, driveFolderId } = req.body;
+    
+    console.log(`[Batch] Creating job for user ${userId}, ${totalFiles} files, folder ${driveFolderId}`);
+    
+    const { data, error } = await supabaseAdmin
+      .from('batch_jobs')
+      .insert([
+        { user_id: userId, total_files: totalFiles, drive_folder_id: driveFolderId }
+      ])
+      .select('id')
+      .single();
+
+    if (error) {
+      console.error('[Batch] Error creating job:', error);
+      return res.status(500).json({ error: 'Failed to create batch job' });
+    }
+    
+    res.json({ jobId: data.id });
+  });
+
+  const upload = multer({ dest: 'uploads/' });
+  const storage = new Storage();
+  const bucketName = process.env.GCS_BUCKET_NAME || 'my-batch-bucket';
+
+  app.post("/api/batch/upload", upload.array('files'), async (req, res) => {
+    const files = req.files as Express.Multer.File[];
+    if (!files || files.length === 0) {
+      return res.status(400).json({ error: 'No files uploaded' });
+    }
+
+    try {
+      const bucket = storage.bucket(bucketName);
+      const uploadedFiles = await Promise.all(files.map(async (file) => {
+        const destination = `batch-uploads/${Date.now()}-${file.originalname}`;
+        await bucket.upload(file.path, { destination });
+        fs.unlinkSync(file.path); // Clean up local file
+        return { originalname: file.originalname, gcsPath: destination };
+      }));
+      
+      res.json({ uploadedFiles });
+    } catch (error) {
+      console.error('[Batch] GCS upload error:', error);
+      res.status(500).json({ error: 'Failed to upload files to GCS' });
+    }
+  });
+
+  // Batch submission endpoint
+  app.post("/api/batch/submit", async (req, res) => {
+    const { jobId, gcsFiles } = req.body;
+    
+    console.log(`[Batch] Submitting job ${jobId} to Gemini Batch API...`);
+    
+    try {
+      const apiKey = (process.env.NEWGEMINI_API_KEY || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY || "").trim();
+      const genAI = new GoogleGenAI({ apiKey });
+      
+      const batchJob = await genAI.batches.create({
+        model: 'gemini-1.5-flash',
+        src: {
+            fileName: gcsFiles[0].gcsPath
+        },
+        config: {
+            displayName: `Batch Job ${jobId}`
+        }
+      });
+
+      await supabaseAdmin
+        .from('batch_jobs')
+        .update({ status: 'processing', batch_job_name: batchJob.name })
+        .eq('id', jobId);
+      
+      res.json({ message: 'Batch submission initiated', batchJobId: batchJob.name });
+    } catch (error) {
+        console.error('[Batch] Submission error:', error);
+        res.status(500).json({ error: 'Failed to submit batch job' });
+    }
+  });
+
+  // Polling endpoint to check batch status and finalize
+  app.post("/api/batch/poll", async (req, res) => {
+    const { jobId, batchJobName, driveFolderId, accessToken } = req.body;
+    
+    try {
+        const apiKey = (process.env.NEWGEMINI_API_KEY || process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY || "").trim();
+        const genAI = new GoogleGenAI({ apiKey });
+        
+        const job = await genAI.batches.get({ name: batchJobName });
+        
+        if (job.state !== 'SUCCEEDED') {
+            return res.json({ status: job.state });
+        }
+
+        const bucket = storage.bucket(bucketName);
+        const [files] = await bucket.getFiles({ prefix: `batch-output/${jobId}` });
+        
+        const driveClient = drive({ 
+            version: 'v3', 
+            headers: { Authorization: `Bearer ${accessToken}` } 
+        });
+
+        for (const file of files) {
+            const [content] = await file.download();
+            await driveClient.files.create({
+                requestBody: { name: file.name.split('/').pop(), parents: [driveFolderId] },
+                media: { body: content, mimeType: 'image/png' }
+            });
+        }
+
+        await supabaseAdmin
+            .from('batch_jobs')
+            .update({ status: 'completed' })
+            .eq('id', jobId);
+        
+        res.json({ status: 'completed' });
+    } catch (error) {
+        console.error('[Batch] Polling/Finalization error:', error);
+        res.status(500).json({ error: 'Failed to process batch results' });
     }
   });
 
