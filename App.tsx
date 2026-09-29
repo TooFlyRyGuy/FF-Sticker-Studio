@@ -12,6 +12,14 @@ import PromptEditor from './components/PromptEditor';
 import Login from './components/Login';
 import { stripBase64Prefix, getMimeType, getMimeTypeFromBase64, compressImageBase64, fileToBase64 } from './utils/imageUtils';
 import { generateEditedImage, generatePromptMetadata } from './services/geminiService';
+
+const MAX_REFERENCES = 4;
+
+interface ReferenceImageSlot {
+  id: string;
+  image: string | null;
+  file: File | null;
+}
 import { savePrompt, initStorage, getFolders, getPromptById } from './services/storageService';
 import { supabase } from './services/supabaseClient';
 import { AspectRatio, ImageSize, ModelType, ProcessingState, NotificationItem, NotificationType, SavedPrompt, Folder, BatchJob, BatchLogEntry } from './types';
@@ -27,8 +35,7 @@ const App: React.FC = () => {
   const [sourceImage, setSourceImage] = useState<string | null>(null);
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   
-  const [referenceImage, setReferenceImage] = useState<string | null>(null);
-  const [referenceFile, setReferenceFile] = useState<File | null>(null);
+  const [referenceImages, setReferenceImages] = useState<ReferenceImageSlot[]>([]);
   const [refStrength, setRefStrength] = useState<number>(50);
 
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
@@ -110,8 +117,13 @@ const App: React.FC = () => {
         })
       );
 
-      const refRawBase64 = referenceImage ? stripBase64Prefix(referenceImage) : undefined;
-      const refMimeType = referenceFile ? getMimeType(referenceFile) : (referenceImage ? getMimeTypeFromBase64(referenceImage) : undefined);
+      const refImagesForApi = referenceImages
+        .filter(r => r.image)
+        .map(r => {
+          const base64 = stripBase64Prefix(r.image!);
+          const mimeType = r.file ? getMimeType(r.file) : getMimeTypeFromBase64(r.image!);
+          return { base64, mimeType };
+        });
 
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -128,9 +140,8 @@ const App: React.FC = () => {
           model: selectedModel,
           aspectRatio,
           imageSize,
-          referenceImageBase64: refRawBase64,
-          referenceMimeType: refMimeType,
-          refStrength: referenceImage ? refStrength : undefined,
+          referenceImages: refImagesForApi.length > 0 ? refImagesForApi : undefined,
+          refStrength: refImagesForApi.length > 0 ? refStrength : undefined,
         }),
       });
 
@@ -386,15 +397,32 @@ const App: React.FC = () => {
     addNotification('info', 'Source image uploaded.');
   };
 
-  const handleReferenceChange = (file: File, base64: string) => {
-    setReferenceFile(file);
-    setReferenceImage(base64);
+  const handleReferenceChange = (slotId: string, file: File, base64: string) => {
+    setReferenceImages(prev => prev.map(s => s.id === slotId ? { ...s, image: base64, file } : s));
     addNotification('info', 'Reference image uploaded.');
   };
 
-  const handleReferenceRemove = () => {
-    setReferenceFile(null);
-    setReferenceImage(null);
+  const handleReferenceRemove = (slotId: string) => {
+    setReferenceImages(prev => prev.filter(s => s.id !== slotId));
+  };
+
+  const handleAddReference = () => {
+    setReferenceImages(prev => {
+      if (prev.length >= MAX_REFERENCES) return prev;
+      return [...prev, { id: Date.now().toString() + Math.random().toString(), image: null, file: null }];
+    });
+  };
+
+  const hasAnyReference = referenceImages.some(r => r.image);
+
+  const getReferenceImagesForApi = () => {
+    return referenceImages
+      .filter(r => r.image)
+      .map(r => {
+        const base64 = stripBase64Prefix(r.image!);
+        const mimeType = r.file ? getMimeType(r.file) : getMimeTypeFromBase64(r.image!);
+        return { base64, mimeType };
+      });
   };
 
   const handleUploadError = (message: string) => {
@@ -432,8 +460,11 @@ const App: React.FC = () => {
       setActivePromptCustomFields((fullPrompt as any).custom_fields || []);
       setActivePromptIsPublic(fullPrompt.is_public ?? true);
       setActivePromptPreviewUrl(fullPrompt.preview_image_url || null);
-      setReferenceImage(fullPrompt.reference_image_url || null);
-      setReferenceFile(null); // Clear file as we have a URL/bas64 string
+      if (fullPrompt.reference_image_url) {
+        setReferenceImages([{ id: Date.now().toString() + Math.random().toString(), image: fullPrompt.reference_image_url, file: null }]);
+      } else {
+        setReferenceImages([]);
+      }
       setGeneratedImage(null); // Clear previously generated image when exploring newly loaded prompts
       setIsLibraryOpen(false);
       addNotification('success', `Loaded "${fullPrompt.name}"`);
@@ -516,7 +547,7 @@ const App: React.FC = () => {
       setStatus({ isLoading: true, error: null, progress: 'Compressing images...' });
       
       const compressedPreview = await compressImageBase64(previewImage);
-      const compressedReference = await compressImageBase64(referenceImage);
+      const compressedReference = await compressImageBase64(referenceImages.length > 0 ? referenceImages[0].image : null);
 
       const promptData: Partial<SavedPrompt> = {
         name: activePromptName,
@@ -588,7 +619,7 @@ const App: React.FC = () => {
       setStatus({ isLoading: true, error: null, progress: 'Compressing images...' });
       
       const compressedPreview = await compressImageBase64(previewImage);
-      const compressedReference = await compressImageBase64(referenceImage);
+      const compressedReference = await compressImageBase64(referenceImages.length > 0 ? referenceImages[0].image : null);
 
       const promptData: Partial<SavedPrompt> = {
         name: newName,
@@ -635,16 +666,14 @@ const App: React.FC = () => {
     try {
       const rawBase64 = sourceImage ? stripBase64Prefix(sourceImage) : undefined;
       const mimeType = sourceFile ? getMimeType(sourceFile) : (sourceImage ? getMimeTypeFromBase64(sourceImage) : undefined);
-      
-      const refRawBase64 = referenceImage ? stripBase64Prefix(referenceImage) : undefined;
-      const refMimeType = referenceFile ? getMimeType(referenceFile) : (referenceImage ? getMimeTypeFromBase64(referenceImage) : undefined);
+
+      const refImagesForApi = getReferenceImagesForApi();
 
       const resultImage = await generateEditedImage({
         imageBase64: rawBase64,
         mimeType: mimeType,
-        referenceImageBase64: refRawBase64,
-        referenceMimeType: refMimeType,
-        refStrength: referenceImage ? refStrength : undefined,
+        referenceImages: refImagesForApi.length > 0 ? refImagesForApi : undefined,
+        refStrength: refImagesForApi.length > 0 ? refStrength : undefined,
         prompt,
         aspectRatio,
         imageSize,
@@ -869,13 +898,27 @@ const App: React.FC = () => {
                         </div>
                     </div>
                 )}
-                <ImageUpload 
-                  label="Reference Image (Optional)" 
-                  image={referenceImage}
-                  onImageChange={handleReferenceChange}
-                  onError={handleUploadError}
-                  onRemove={handleReferenceRemove}
-                />
+                {referenceImages.map((slot, idx) => (
+                  <ImageUpload 
+                    key={slot.id}
+                    label={`Reference Image ${idx + 1}`}
+                    image={slot.image}
+                    onImageChange={(file, base64) => handleReferenceChange(slot.id, file, base64)}
+                    onError={handleUploadError}
+                    onRemove={() => handleReferenceRemove(slot.id)}
+                  />
+                ))}
+                {referenceImages.length < MAX_REFERENCES && (
+                  <button
+                    onClick={handleAddReference}
+                    className="w-full py-2.5 border border-dashed border-app-border rounded-lg text-xs font-mono uppercase tracking-wider text-app-muted hover:text-app-accent hover:border-app-accent/50 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    Add Reference Image
+                  </button>
+                )}
               </div>
             </div>
 
@@ -931,7 +974,7 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              {referenceImage && (
+              {hasAnyReference && (
                 <div className="bg-app-bg/50 p-3 sm:p-4 rounded-lg border border-app-border">
                   <div className="flex justify-between mb-2 sm:mb-3">
                     <label className="text-xs font-mono uppercase tracking-wider text-app-muted">Reference Influence</label>

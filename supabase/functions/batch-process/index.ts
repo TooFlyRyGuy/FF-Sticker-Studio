@@ -110,34 +110,38 @@ async function logFile(supabaseAdmin: any, jobId: string, fileName: string, stat
   }]);
 }
 
-function buildPromptForFile(file: any, prompt: string, referenceImageBase64?: string, refStrength?: number): string {
-  if (file.base64 && referenceImageBase64) {
-    let finalPrompt = `TASK: Edit the first image based on the user prompt, using the second image as a style reference.
+interface RefImage {
+  base64: string;
+  mimeType: string;
+}
 
-STRICT INSTRUCTIONS FOR IMAGE PROCESSING:
-1. IMAGE 1 (First Image) is the SOURCE SUBJECT. You MUST strictly preserve the facial features, identity, and physical likeness of the person in this image.
-2. IMAGE 2 (Second Image) is the STYLE REFERENCE. Use this image ONLY for lighting, composition, color palette, and artistic style.
-3. CRITICAL: DO NOT use the face, facial features, or identity from Image 2. IGNORE the identity of any person in Image 2.
-4. DO NOT BLEND FACES. The resulting image must look exactly like the person in Image 1, but with the style of Image 2.
+function buildPromptForFile(file: any, prompt: string, referenceImages: RefImage[], refStrength?: number): string {
+  if (file.base64 && referenceImages.length > 0) {
+    const refLabels = referenceImages.map((_, i) => `Reference Image ${i + 1}`).join(", ");
+    let finalPrompt = `You are given ${referenceImages.length + 1} images and a text prompt.
+
+- The FIRST image is the SOURCE PHOTO. This is the person/subject you are editing. You MUST preserve their face, identity, facial features, body shape, and likeness exactly. This is non-negotiable.
+- The remaining image(s) are REFERENCE IMAGES (${refLabels}). Use them for lighting, color grading, mood, composition, texture, and artistic direction. IGNORE the face, body, identity, and any person in the reference images entirely.
+- DO NOT blend faces. DO NOT use any reference image's identity. The output must clearly show the FIRST image's person, influenced by the reference image(s).
 
 USER PROMPT: ${prompt}`;
     if (refStrength !== undefined) {
-      finalPrompt += `\n\nSTYLE INFLUENCE SETTING: ${refStrength}/100.`;
+      finalPrompt += `\n\nREFERENCE INFLUENCE: ${refStrength}/100. Apply this strength to the reference influence (lighting, colors, texture) only. Identity preservation of the FIRST image is always 100/100.`;
     }
     return finalPrompt;
   } else if (file.base64) {
-    return `TASK: Edit the image based on the user prompt.\n\nSTRICT INSTRUCTION: Preserve the facial features and identity of the person in the image.\n\nUSER PROMPT: ${prompt}`;
+    return `Edit the provided image according to the user prompt. Preserve the person's face, identity, and likeness.\n\nUSER PROMPT: ${prompt}`;
   }
   return prompt;
 }
 
-function buildPartsForFile(file: any, referenceImageBase64?: string, referenceMimeType?: string): any[] {
+function buildPartsForFile(file: any, referenceImages: RefImage[]): any[] {
   const parts: any[] = [];
   if (file.base64 && file.mimeType) {
     parts.push({ inlineData: { data: file.base64, mimeType: file.mimeType } });
   }
-  if (referenceImageBase64 && referenceMimeType) {
-    parts.push({ inlineData: { data: referenceImageBase64, mimeType: referenceMimeType } });
+  for (const ref of referenceImages) {
+    parts.push({ inlineData: { data: ref.base64, mimeType: ref.mimeType } });
   }
   return parts;
 }
@@ -247,7 +251,7 @@ async function finalizeJob(supabaseAdmin: any, jobId: string, processed: number,
 async function processSequential(
   genAI: any, supabaseAdmin: any, jobId: string,
   files: any[], prompt: string, model: string, aspectRatio: string,
-  imageSize: string, referenceImageBase64?: string, referenceMimeType?: string, refStrength?: number
+  imageSize: string, referenceImages: RefImage[], refStrength?: number
 ) {
   const isHighFidelity = model.includes("pro") || model.includes("3.1-flash-image");
   let processed = 0;
@@ -258,8 +262,8 @@ async function processSequential(
     const file = files[i];
     const fileName = file.name || `image-${String(i + 1).padStart(3, "0")}`;
     try {
-      const parts = buildPartsForFile(file, referenceImageBase64, referenceMimeType);
-      const finalPrompt = buildPromptForFile(file, prompt, referenceImageBase64, refStrength);
+      const parts = buildPartsForFile(file, referenceImages);
+      const finalPrompt = buildPromptForFile(file, prompt, referenceImages, refStrength);
       parts.push({ text: finalPrompt });
 
       const configData: any = { imageConfig: { aspectRatio } };
@@ -301,15 +305,15 @@ async function processSequential(
 async function processViaBatchApi(
   genAI: any, supabaseAdmin: any, jobId: string,
   files: any[], prompt: string, model: string, aspectRatio: string,
-  imageSize: string, referenceImageBase64?: string, referenceMimeType?: string, refStrength?: number
+  imageSize: string, referenceImages: RefImage[], refStrength?: number
 ): Promise<boolean> {
   const isHighFidelity = model.includes("pro") || model.includes("3.1-flash-image");
   const inlinedRequests: any[] = [];
 
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
-    const parts = buildPartsForFile(file, referenceImageBase64, referenceMimeType);
-    const finalPrompt = buildPromptForFile(file, prompt, referenceImageBase64, refStrength);
+    const parts = buildPartsForFile(file, referenceImages);
+    const finalPrompt = buildPromptForFile(file, prompt, referenceImages, refStrength);
     parts.push({ text: finalPrompt });
 
     const configData: any = { imageConfig: { aspectRatio } };
@@ -606,7 +610,11 @@ Deno.serve(async (req: Request) => {
   // --- POST route: submit a new batch ---
   try {
     const body = await req.json();
-    const { files, prompt, model, aspectRatio, imageSize, referenceImageBase64, referenceMimeType, refStrength } = body;
+    const { files, prompt, model, aspectRatio, imageSize, referenceImages, refStrength } = body;
+
+    const refs: RefImage[] = Array.isArray(referenceImages)
+      ? referenceImages.filter((r: RefImage) => r.base64 && r.mimeType)
+      : [];
 
     if (!files || !Array.isArray(files) || files.length === 0) {
       return new Response(JSON.stringify({ error: "No files provided." }), {
@@ -648,7 +656,7 @@ Deno.serve(async (req: Request) => {
       const batchSuccess = await processViaBatchApi(
         genAI, supabaseAdmin, jobId,
         files, prompt, model, aspectRatio, imageSize,
-        referenceImageBase64, referenceMimeType, refStrength
+        refs, refStrength
       );
 
       if (!batchSuccess) {
@@ -661,7 +669,7 @@ Deno.serve(async (req: Request) => {
         await processSequential(
           genAI, supabaseAdmin, jobId,
           files, prompt, model, aspectRatio, imageSize,
-          referenceImageBase64, referenceMimeType, refStrength
+          refs, refStrength
         );
       }
     };

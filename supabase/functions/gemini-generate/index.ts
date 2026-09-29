@@ -6,6 +6,11 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
+interface RefImage {
+  base64: string;
+  mimeType: string;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
@@ -13,7 +18,6 @@ Deno.serve(async (req: Request) => {
 
   const apiKey = (Deno.env.get("GEMINI_API_KEY") || Deno.env.get("NEWGEMINI_API_KEY") || "").trim();
 
-  // GET: config check — does the server have a Gemini key?
   if (req.method === "GET") {
     return new Response(JSON.stringify({ hasKey: !!apiKey }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -40,8 +44,7 @@ Deno.serve(async (req: Request) => {
     const {
       imageBase64,
       mimeType,
-      referenceImageBase64,
-      referenceMimeType,
+      referenceImages,
       refStrength,
       prompt,
       aspectRatio,
@@ -62,22 +65,28 @@ Deno.serve(async (req: Request) => {
     if (imageBase64 && mimeType) {
       parts.push({ inlineData: { data: imageBase64, mimeType } });
     }
-    if (referenceImageBase64 && referenceMimeType) {
-      parts.push({ inlineData: { data: referenceImageBase64, mimeType: referenceMimeType } });
+
+    const refs: RefImage[] = Array.isArray(referenceImages)
+      ? referenceImages.filter((r: RefImage) => r.base64 && r.mimeType)
+      : [];
+
+    for (const ref of refs) {
+      parts.push({ inlineData: { data: ref.base64, mimeType: ref.mimeType } });
     }
 
     let finalPrompt = "";
-    if (imageBase64 && referenceImageBase64) {
-      finalPrompt = `You are given TWO images and a text prompt.
+    if (imageBase64 && refs.length > 0) {
+      const refLabels = refs.map((_, i) => `Reference Image ${i + 1}`).join(", ");
+      finalPrompt = `You are given ${refs.length + 1} images and a text prompt.
 
 - The FIRST image is the SOURCE PHOTO. This is the person/subject you are editing. You MUST preserve their face, identity, facial features, body shape, and likeness exactly. This is non-negotiable.
-- The SECOND image is a STYLE REFERENCE only. Extract ONLY the artistic style from it: lighting, color grading, mood, composition style, texture, and atmosphere. IGNORE the face, body, identity, and any person in the second image entirely.
-- DO NOT blend the two faces. DO NOT use the second image's identity. The output must clearly show the FIRST image's person, restyled.
+- The remaining image(s) are REFERENCE IMAGES (${refLabels}). Use them for lighting, color grading, mood, composition, texture, and artistic direction. IGNORE the face, body, identity, and any person in the reference images entirely.
+- DO NOT blend faces. DO NOT use any reference image's identity. The output must clearly show the FIRST image's person, influenced by the reference image(s).
 
 USER PROMPT: ${prompt}`;
 
       if (refStrength !== undefined) {
-        finalPrompt += `\n\nSTYLE INFLUENCE: ${refStrength}/100. Apply this strength to style transfer (lighting, colors, texture) only. Identity preservation of the FIRST image is always 100/100.`;
+        finalPrompt += `\n\nREFERENCE INFLUENCE: ${refStrength}/100. Apply this strength to the reference influence (lighting, colors, texture) only. Identity preservation of the FIRST image is always 100/100.`;
       }
     } else if (imageBase64) {
       finalPrompt = `Edit the provided image according to the user prompt. Preserve the person's face, identity, and likeness.

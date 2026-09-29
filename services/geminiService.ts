@@ -1,10 +1,14 @@
 import { AspectRatio, ImageSize, ModelType } from "../types";
 
+interface RefImageData {
+  base64: string;
+  mimeType: string;
+}
+
 interface EditImageParams {
   imageBase64?: string | null;
   mimeType?: string | null;
-  referenceImageBase64?: string | null;
-  referenceMimeType?: string | null;
+  referenceImages?: RefImageData[];
   refStrength?: number;
   prompt: string;
   aspectRatio: AspectRatio;
@@ -50,7 +54,7 @@ const getAuthHeaders = (): Record<string, string> => {
 };
 
 export const generateEditedImage = async (params: EditImageParams): Promise<string> => {
-  let { imageBase64, mimeType, referenceImageBase64, referenceMimeType, refStrength, prompt, aspectRatio, imageSize, model } = params;
+  let { imageBase64, mimeType, referenceImages, refStrength, prompt, aspectRatio, imageSize, model } = params;
 
   if (imageBase64) {
     const result = await ensureBase64(imageBase64, mimeType || 'image/png');
@@ -58,10 +62,12 @@ export const generateEditedImage = async (params: EditImageParams): Promise<stri
     mimeType = result.mime;
   }
 
-  if (referenceImageBase64) {
-    const result = await ensureBase64(referenceImageBase64, referenceMimeType || 'image/png');
-    referenceImageBase64 = result.data;
-    referenceMimeType = result.mime;
+  const processedRefs: RefImageData[] = [];
+  if (referenceImages && referenceImages.length > 0) {
+    for (const ref of referenceImages) {
+      const result = await ensureBase64(ref.base64, ref.mimeType || 'image/png');
+      processedRefs.push({ base64: result.data, mimeType: result.mime });
+    }
   }
 
   const response = await fetch(getEdgeFunctionUrl(), {
@@ -71,8 +77,7 @@ export const generateEditedImage = async (params: EditImageParams): Promise<stri
       params: {
         imageBase64,
         mimeType,
-        referenceImageBase64,
-        referenceMimeType,
+        referenceImages: processedRefs.length > 0 ? processedRefs : undefined,
         refStrength,
         prompt,
         aspectRatio,
