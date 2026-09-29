@@ -26,10 +26,41 @@ import { AspectRatio, ImageSize, ModelType, ProcessingState, NotificationItem, N
 import { PromptCustomField } from './components/PromptVariableBuilder';
 
 const App: React.FC = () => {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    return localStorage.getItem('isAuthenticated') === 'true';
-  });
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [initialCheckDone, setInitialCheckDone] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!mounted) return;
+      if (session?.user) {
+        setIsAuthenticated(true);
+        setCurrentUserId(session.user.id);
+      }
+      setInitialCheckDone(true);
+    })();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      (async () => {
+        if (!mounted) return;
+        if (event === 'SIGNED_IN' && session?.user) {
+          setIsAuthenticated(true);
+          setCurrentUserId(session.user.id);
+        } else if (event === 'SIGNED_OUT') {
+          setIsAuthenticated(false);
+          setCurrentUserId(null);
+        }
+      })();
+    });
+
+    return () => {
+      mounted = false;
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
   
   // Image State
   const [sourceImage, setSourceImage] = useState<string | null>(null);
@@ -578,7 +609,7 @@ const App: React.FC = () => {
         is_public: activePromptIsPublic,
         preview_image_url: compressedPreview,
         reference_image_url: compressedReference,
-        user_id: !activePromptIsPublic ? (await supabase.auth.getUser()).data.user?.id : null
+        user_id: !activePromptIsPublic ? currentUserId : null
       };
 
       if (activePromptId) {
@@ -650,7 +681,7 @@ const App: React.FC = () => {
         is_public: activePromptIsPublic,
         preview_image_url: compressedPreview,
         reference_image_url: compressedReference,
-        user_id: !activePromptIsPublic ? (await supabase.auth.getUser()).data.user?.id : null
+        user_id: !activePromptIsPublic ? currentUserId : null
       };
 
       const newPrompt = await savePrompt(promptData);
@@ -758,7 +789,7 @@ const App: React.FC = () => {
   }
 
   if (!isAuthenticated) {
-    return <Login onLogin={() => setIsAuthenticated(true)} />;
+    return <Login onLogin={() => {}} />;
   }
 
   return (

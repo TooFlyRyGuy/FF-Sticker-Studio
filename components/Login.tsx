@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { supabase } from '../services/supabaseClient';
 
 interface LoginProps {
   onLogin: () => void;
@@ -8,34 +9,48 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanEmail = email.trim().toLowerCase();
     const cleanPassword = password.trim();
 
-    const allowedEmails = [
-      'funframephoto@gmail.com',
-      'ryan@funframephoto.com',
-      'admin@funframephoto.com',
-      'admin'
-    ];
+    if (!cleanEmail || !cleanPassword) {
+      setError('Please enter your email and password.');
+      return;
+    }
 
-    const validPasswords = [
-      '1loveFunfr@mePh0t0',
-      'IloveFunfr@mePh0t0',
-      'iloveFunfr@mePh0t0',
-      '1lovefunframephoto',
-      'ilovefunframephoto',
-      'admin',
-      'funframe2026'
-    ];
+    setLoading(true);
+    setError('');
 
-    if (allowedEmails.includes(cleanEmail) && validPasswords.includes(cleanPassword)) {
-      localStorage.setItem('isAuthenticated', 'true');
-      onLogin();
-    } else {
-      setError('Invalid email or password. Please check your credentials.');
+    try {
+      if (isSignUp) {
+        const { error: signUpError } = await supabase.auth.signUp({
+          email: cleanEmail,
+          password: cleanPassword,
+        });
+        if (signUpError) throw signUpError;
+        onLogin();
+      } else {
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password: cleanPassword,
+        });
+        if (signInError) throw signInError;
+        onLogin();
+      }
+    } catch (err: any) {
+      if (err.message?.includes('Invalid login credentials')) {
+        setError('Invalid email or password. Please check your credentials.');
+      } else if (err.message?.includes('already registered')) {
+        setError('An account with this email already exists. Try signing in instead.');
+      } else {
+        setError(err.message || 'Authentication failed. Please try again.');
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -44,7 +59,9 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       <div className="w-full max-w-md bg-app-surface border border-app-border rounded-xl p-8 shadow-2xl">
         <div className="flex flex-col items-center mb-8">
           <h1 className="text-2xl font-mono uppercase tracking-widest text-white mb-2">Prompt Studio</h1>
-          <p className="text-app-muted text-sm text-center uppercase tracking-wider">Login to Access</p>
+          <p className="text-app-muted text-sm text-center uppercase tracking-wider">
+            {isSignUp ? 'Create Account' : 'Login to Access'}
+          </p>
         </div>
         
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -62,6 +79,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
               onChange={(e) => setEmail(e.target.value)}
               className="w-full bg-app-bg border border-app-border rounded-lg px-4 py-3 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-sm transition-shadow"
               required
+              disabled={loading}
             />
           </div>
           
@@ -73,15 +91,30 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
               onChange={(e) => setPassword(e.target.value)}
               className="w-full bg-app-bg border border-app-border rounded-lg px-4 py-3 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-sm transition-shadow"
               required
+              disabled={loading}
             />
           </div>
           
           <button
             type="submit"
-            className="w-full bg-app-accent hover:bg-app-accentHover text-black font-bold uppercase tracking-widest text-sm py-4 rounded-lg transition-colors border border-transparent hover:border-app-accentHover mt-4"
+            disabled={loading}
+            className="w-full bg-app-accent hover:bg-app-accentHover text-black font-bold uppercase tracking-widest text-sm py-4 rounded-lg transition-colors border border-transparent hover:border-app-accentHover mt-4 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Login
+            {loading ? 'Please wait...' : isSignUp ? 'Sign Up' : 'Login'}
           </button>
+
+          <div className="text-center">
+            <button
+              type="button"
+              onClick={() => {
+                setIsSignUp(!isSignUp);
+                setError('');
+              }}
+              className="text-xs font-mono text-app-muted hover:text-app-accent uppercase tracking-wider transition-colors"
+            >
+              {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
+            </button>
+          </div>
         </form>
       </div>
     </div>

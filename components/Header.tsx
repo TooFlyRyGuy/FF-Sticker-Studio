@@ -20,8 +20,6 @@ const Header: React.FC<HeaderProps> = ({ notifications, onDismissNotification })
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    localStorage.removeItem('isAuthenticated');
-    window.location.reload();
   };
 
   useEffect(() => {
