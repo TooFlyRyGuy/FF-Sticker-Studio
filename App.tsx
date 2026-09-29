@@ -73,9 +73,13 @@ const App: React.FC = () => {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
   // Notification Helper
-  const addNotification = useCallback((type: NotificationType, message: string) => {
-    const id = Date.now().toString() + Math.random().toString();
-    setNotifications(prev => [...prev, { id, type, message }]);
+  const addNotification = useCallback((item: NotificationItem | NotificationType, message?: string) => {
+    if (typeof item === 'string') {
+      const id = Date.now().toString() + Math.random().toString();
+      setNotifications(prev => [...prev, { id, type: item, message: message || '' }]);
+    } else {
+      setNotifications(prev => [...prev, item as NotificationItem]);
+    }
   }, []);
 
   const removeNotification = useCallback((id: string) => {
@@ -106,9 +110,15 @@ const App: React.FC = () => {
       const refRawBase64 = referenceImage ? stripBase64Prefix(referenceImage) : undefined;
       const refMimeType = referenceFile ? getMimeType(referenceFile) : (referenceImage ? getMimeTypeFromBase64(referenceImage) : undefined);
 
-      const response = await fetch('/api/batch/start', {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const response = await fetch(`${supabaseUrl}/functions/v1/batch-process`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseAnonKey}`,
+          'apikey': supabaseAnonKey,
+        },
         body: JSON.stringify({
           files: filesWithBase64,
           prompt,
@@ -175,7 +185,7 @@ const App: React.FC = () => {
             persistent: true,
             actionLabel: 'Download All',
             actionUrl: zipUrl || undefined,
-          } as any);
+          });
         } else if (job.status === 'failed') {
           if (batchPollRef.current) clearInterval(batchPollRef.current);
           batchPollRef.current = null;

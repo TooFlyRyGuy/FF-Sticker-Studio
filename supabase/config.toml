@@ -1,0 +1,3 @@
+[functions.batch-process]
+verify_jwt = false
+entrypoint = "./functions/batch-process/index.ts"
