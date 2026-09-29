@@ -68,25 +68,19 @@ Deno.serve(async (req: Request) => {
 
     let finalPrompt = "";
     if (imageBase64 && referenceImageBase64) {
-      finalPrompt = `TASK: Edit the first image based on the user prompt, using the second image as a style reference.
+      finalPrompt = `You are given TWO images and a text prompt.
 
-STRICT INSTRUCTIONS FOR IMAGE PROCESSING:
-1. IMAGE 1 (First Image) is the SOURCE SUBJECT. You MUST strictly preserve the facial features, identity, and physical likeness of the person in this image.
-2. IMAGE 2 (Second Image) is the STYLE REFERENCE. Use this image ONLY for lighting, composition, color palette, and artistic style.
-3. CRITICAL: DO NOT use the face, facial features, or identity from Image 2. IGNORE the identity of any person in Image 2.
-4. DO NOT BLEND FACES. The resulting image must look exactly like the person in Image 1, but with the style of Image 2.
+- The FIRST image is the SOURCE PHOTO. This is the person/subject you are editing. You MUST preserve their face, identity, facial features, body shape, and likeness exactly. This is non-negotiable.
+- The SECOND image is a STYLE REFERENCE only. Extract ONLY the artistic style from it: lighting, color grading, mood, composition style, texture, and atmosphere. IGNORE the face, body, identity, and any person in the second image entirely.
+- DO NOT blend the two faces. DO NOT use the second image's identity. The output must clearly show the FIRST image's person, restyled.
 
 USER PROMPT: ${prompt}`;
 
       if (refStrength !== undefined) {
-        finalPrompt += `\n\nSTYLE INFLUENCE SETTING: ${refStrength}/100.
-          - Apply this strength to the *style transfer* (lighting, colors, texture) only.
-          - Identity preservation strength is fixed at 100/100 (Maximum) for Image 1.`;
+        finalPrompt += `\n\nSTYLE INFLUENCE: ${refStrength}/100. Apply this strength to style transfer (lighting, colors, texture) only. Identity preservation of the FIRST image is always 100/100.`;
       }
     } else if (imageBase64) {
-      finalPrompt = `TASK: Edit the image based on the user prompt.
-
-STRICT INSTRUCTION: Preserve the facial features and identity of the person in the image.
+      finalPrompt = `Edit the provided image according to the user prompt. Preserve the person's face, identity, and likeness.
 
 USER PROMPT: ${prompt}`;
     } else {
