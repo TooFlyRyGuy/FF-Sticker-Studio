@@ -23,6 +23,34 @@ export const getPrompts = async (page: number = 0, limit: number = 24): Promise<
   return { prompts: (data || []) as SavedPrompt[], total: count || 0 };
 };
 
+export const getAllPromptMetadata = async (): Promise<SavedPrompt[]> => {
+  const { data, error } = await supabase
+    .from('prompts')
+    .select('id, name, description, category, is_active, usage_count, created_at, updated_at, tags, is_public, user_id')
+    .order('updated_at', { ascending: false })
+    .limit(1000);
+
+  if (error) {
+    console.error('Error fetching prompt metadata:', error);
+    return [];
+  }
+  return (data || []) as SavedPrompt[];
+};
+
+export const getPromptPreviewImage = async (id: string): Promise<string | null> => {
+  const { data, error } = await supabase
+    .from('prompts')
+    .select('preview_image_url')
+    .eq('id', id)
+    .single();
+
+  if (error) {
+    console.error('Error fetching preview image:', error);
+    return null;
+  }
+  return data?.preview_image_url || null;
+};
+
 export const getPromptById = async (id: string): Promise<SavedPrompt | null> => {
   const { data, error } = await supabase
     .from('prompts')
@@ -78,7 +106,7 @@ export const deletePrompt = async (id: string): Promise<void> => {
 
 // Folders are just unique categories
 export const getFolders = async (): Promise<Folder[]> => {
-  const { data, error } = await supabase.from('prompts').select('category');
+  const { data, error } = await supabase.from('prompts').select('category').limit(1000);
   if (error) {
     console.error('Error fetching categories:', error);
     return [];

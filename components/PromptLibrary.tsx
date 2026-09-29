@@ -1,26 +1,77 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Folder as FolderIcon, 
-  FolderPlus, 
   Search, 
   X, 
   Plus, 
   Trash2, 
-  Filter, 
   Tag as TagIcon, 
-  ChevronDown, 
   SlidersHorizontal,
   Layers,
   Image as ImageIcon
 } from 'lucide-react';
 import { Folder, SavedPrompt } from '../types';
-import { getFolders, saveFolder, deleteFolder, getPrompts, deletePrompt } from '../services/storageService';
+import { getFolders, saveFolder, deleteFolder, getAllPromptMetadata, getPromptPreviewImage, deletePrompt } from '../services/storageService';
 
 interface PromptLibraryProps {
   isOpen: boolean;
   onClose: () => void;
   onSelectPrompt: (prompt: SavedPrompt) => void;
 }
+
+const LazyPreviewImage: React.FC<{ promptId: string; hasPreview: boolean }> = ({ promptId, hasPreview }) => {
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [visible, setVisible] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!visible || imageUrl !== null) return;
+    let cancelled = false;
+    getPromptPreviewImage(promptId).then(url => {
+      if (!cancelled && url) setImageUrl(url);
+    });
+    return () => { cancelled = true; };
+  }, [visible, promptId, imageUrl]);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '200px' }
+    );
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={containerRef} className="relative w-full h-full bg-app-bg overflow-hidden">
+      {imageUrl ? (
+        <img
+          src={imageUrl}
+          alt="Prompt preview"
+          className={`w-full h-full object-cover transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+          loading="lazy"
+          onLoad={() => setLoaded(true)}
+        />
+      ) : !hasPreview ? (
+        <div className="w-full h-full flex flex-col items-center justify-center text-app-muted/40 gap-2">
+          <ImageIcon size={32} />
+          <span className="text-[10px] font-mono uppercase tracking-widest">No Preview</span>
+        </div>
+      ) : (
+        <div className="w-full h-full flex flex-col items-center justify-center gap-2">
+          <div className="w-6 h-6 border-2 border-app-accent border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const PromptLibrary: React.FC<PromptLibraryProps> = ({ isOpen, onClose, onSelectPrompt }) => {
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -43,19 +94,18 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ isOpen, onClose, onSelect
   }, [isOpen]);
 
   useEffect(() => {
-    // Reset pagination when folder or search changes
     setDisplayedCount(24);
   }, [selectedFolderId, selectedTag, searchQuery]);
 
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [loadedFolders, promptResult] = await Promise.all([
+      const [loadedFolders, loadedPrompts] = await Promise.all([
         getFolders(),
-        getPrompts()
+        getAllPromptMetadata()
       ]);
       setFolders(loadedFolders);
-      setPrompts(promptResult.prompts);
+      setPrompts(loadedPrompts);
     } catch (e) {
       console.error("Failed to load library", e);
     } finally {
@@ -85,7 +135,6 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ isOpen, onClose, onSelect
 
   const handleDeletePrompt = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    // Replaced confirm() with direct deletion because modals are blocked in this sandbox
     setIsLoading(true);
     await deletePrompt(id);
     await loadData();
@@ -94,7 +143,6 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ isOpen, onClose, onSelect
 
   const allTags = Array.from(new Set((Array.isArray(prompts) ? prompts : []).flatMap(p => p.tags || []))).map(t => String(t)).sort((a, b) => a.localeCompare(b));
 
-  // Count prompts per category
   const getPromptCount = (folderId: string) => {
     if (folderId === 'all') return prompts.length;
     if (folderId === 'root') return prompts.filter(p => !p.category || p.category === 'root').length;
@@ -102,18 +150,15 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ isOpen, onClose, onSelect
   };
 
   const filteredPrompts = prompts.filter(p => {
-    // Check folder
     if (selectedFolderId !== 'all') {
       if (selectedFolderId === 'root' && p.category && p.category !== 'root') return false;
       if (selectedFolderId !== 'root' && p.category !== selectedFolderId) return false;
     }
     
-    // Check tag
     if (selectedTag !== 'all') {
       if (!p.tags || !p.tags.includes(selectedTag)) return false;
     }
 
-    // Check search query
     if (searchQuery.trim()) {
       const sq = searchQuery.toLowerCase();
       const matchName = (p.name || '').toLowerCase().includes(sq);
@@ -143,7 +188,7 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ isOpen, onClose, onSelect
     <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 md:p-6 bg-app-bg/90 backdrop-blur-sm animate-fadeIn">
       <div className="bg-app-surface w-full max-w-6xl h-full sm:h-[92vh] md:h-[88vh] sm:rounded-xl border-0 sm:border border-app-border shadow-2xl flex flex-col md:flex-row overflow-hidden relative">
         
-        {/* Desktop Sidebar (Hidden on Mobile) */}
+        {/* Desktop Sidebar */}
         <aside className="hidden md:flex md:w-56 lg:w-64 border-r border-app-border bg-app-bg flex-col flex-shrink-0">
           <div className="p-4 border-b border-app-border flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -298,7 +343,6 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ isOpen, onClose, onSelect
               </div>
 
               <div className="flex items-center gap-1.5 flex-shrink-0">
-                {/* Mobile Categories Sheet Trigger */}
                 <button
                   onClick={() => setIsMobileCategoryOpen(true)}
                   className="md:hidden flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-app-bg border border-app-border hover:border-app-accent text-xs font-mono text-white transition-colors"
@@ -311,7 +355,6 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ isOpen, onClose, onSelect
                   </span>
                 </button>
 
-                {/* Close Button */}
                 <button 
                   onClick={onClose} 
                   className="p-1.5 rounded-lg hover:bg-app-bg text-app-muted hover:text-white transition-colors"
@@ -322,7 +365,6 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ isOpen, onClose, onSelect
               </div>
             </div>
 
-            {/* Search & Tag Filter Bar */}
             <div className="flex items-center gap-2">
               <div className="flex-1 relative min-w-0">
                 <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-app-muted pointer-events-none" />
@@ -343,7 +385,6 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ isOpen, onClose, onSelect
                 )}
               </div>
 
-              {/* Mobile Tag Dropdown */}
               <div className="md:hidden flex-shrink-0">
                 <select
                   value={selectedTag}
@@ -359,7 +400,6 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ isOpen, onClose, onSelect
               </div>
             </div>
 
-            {/* Mobile Category Quick Pills (Scrollable horizontally) */}
             <div className="md:hidden flex items-center gap-1.5 overflow-x-auto pb-1 pt-0.5 no-scrollbar scrollbar-none">
               <button
                 onClick={() => setSelectedFolderId('all')}
@@ -392,7 +432,7 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ isOpen, onClose, onSelect
             </div>
           </div>
 
-          {/* Cards Grid Scrollable Container */}
+          {/* Cards Grid */}
           <div className="flex-1 overflow-y-auto min-h-0 bg-app-bg/40 p-3 sm:p-4 md:p-6 scrollbar-thin" id="prompt-library-scroll">
             {isLoading && prompts.length === 0 ? (
               <div className="py-20 flex flex-col items-center justify-center space-y-3">
@@ -431,30 +471,15 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ isOpen, onClose, onSelect
                     className="bg-app-surface border border-app-border rounded-xl overflow-hidden hover:border-app-accent/80 transition-all cursor-pointer group flex flex-col shadow-md shadow-black/30 hover:shadow-xl hover:shadow-black/50"
                     onClick={() => onSelectPrompt(prompt)}
                   >
-                    {/* Preview Image */}
                     <div className="relative w-full aspect-[4/3] sm:aspect-square bg-app-bg border-b border-app-border overflow-hidden">
-                      {prompt.preview_image_url ? (
-                        <img 
-                          src={prompt.preview_image_url} 
-                          alt={prompt.name || 'Prompt preview'} 
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex flex-col items-center justify-center text-app-muted/40 gap-2">
-                          <ImageIcon size={32} />
-                          <span className="text-[10px] font-mono uppercase tracking-widest">No Preview</span>
-                        </div>
-                      )}
+                      <LazyPreviewImage promptId={prompt.id} hasPreview={true} />
                       
-                      {/* Category Badge overlay on image */}
                       {prompt.category && prompt.category !== 'root' && (
                         <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/70 backdrop-blur-md rounded border border-white/10 text-[9px] font-mono uppercase text-white/90">
                           {prompt.category}
                         </div>
                       )}
 
-                      {/* Delete button (accessible on both mobile and desktop) */}
                       <button 
                         onClick={(e) => handleDeletePrompt(prompt.id, e)}
                         className="absolute top-2 right-2 opacity-80 md:opacity-0 md:group-hover:opacity-100 bg-red-600/90 hover:bg-red-600 text-white p-1.5 rounded-lg shadow-lg transition-all z-20"
@@ -464,7 +489,6 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ isOpen, onClose, onSelect
                       </button>
                     </div>
 
-                    {/* Card Info */}
                     <div className="p-3.5 sm:p-4 flex-1 flex flex-col justify-between">
                       <div>
                         <h4 className="font-mono uppercase tracking-wider text-xs sm:text-sm font-bold text-white group-hover:text-app-accent transition-colors truncate mb-1">
@@ -475,7 +499,6 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ isOpen, onClose, onSelect
                         </p>
                       </div>
 
-                      {/* Tags */}
                       {prompt.tags && prompt.tags.length > 0 && (
                         <div className="flex flex-wrap gap-1 pt-2 border-t border-app-border/40">
                           {prompt.tags.slice(0, 4).map((tag, i) => (
@@ -503,7 +526,6 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ isOpen, onClose, onSelect
               </div>
             )}
             
-            {/* Load More Pagination */}
             {displayedPrompts.length < filteredPrompts.length && (
               <div className="p-4 sm:p-6 flex justify-center border-t border-app-border bg-app-surface/30 mt-6 rounded-xl">
                 <button
@@ -517,12 +539,11 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ isOpen, onClose, onSelect
           </div>
         </div>
 
-        {/* Mobile Categories Modal / Drawer Sheet */}
+        {/* Mobile Categories Modal */}
         {isMobileCategoryOpen && (
           <div className="md:hidden fixed inset-0 z-60 flex flex-col justify-end bg-black/80 backdrop-blur-sm animate-fadeIn">
             <div className="bg-app-surface border-t border-app-border rounded-t-2xl max-h-[85vh] flex flex-col overflow-hidden shadow-2xl animate-slideUp">
               
-              {/* Drawer Header */}
               <div className="p-4 border-b border-app-border flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Layers size={16} className="text-app-accent" />
@@ -545,7 +566,6 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ isOpen, onClose, onSelect
                 </div>
               </div>
 
-              {/* Drawer Content */}
               <div className="p-3 overflow-y-auto space-y-1.5 flex-1 max-h-[60vh]">
                 {isCreatingFolder && (
                   <div className="p-3 bg-app-bg rounded-xl border border-app-accent mb-2">
@@ -642,7 +662,6 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ isOpen, onClose, onSelect
                 ))}
               </div>
 
-              {/* Drawer Footer */}
               <div className="p-3 border-t border-app-border bg-app-bg flex justify-end">
                 <button
                   onClick={() => setIsMobileCategoryOpen(false)}
