@@ -60,6 +60,14 @@ const Toast: React.FC<ToastProps> = ({ item, onClose }) => {
     <div className={`flex items-start gap-3 p-4 rounded-lg border backdrop-blur-md shadow-2xl transition-all animate-slideIn ${style.container} w-80 max-w-[90vw] ${item.persistent ? 'ring-2 ring-app-accent/50' : ''}`}>
       <div className="flex-shrink-0 mt-0.5">{style.icon}</div>
       <div className="flex-1 text-xs font-mono uppercase tracking-wider leading-5">{item.message}</div>
+      {item.secondaryActionLabel && item.onSecondaryAction && (
+        <button
+          onClick={item.onSecondaryAction}
+          className="flex-shrink-0 text-xs font-bold uppercase tracking-wider bg-transparent border border-app-border hover:bg-white/10 text-white px-3 py-1.5 rounded transition-colors"
+        >
+          {item.secondaryActionLabel}
+        </button>
+      )}
       {item.actionLabel && (
         <button
           onClick={handleAction}

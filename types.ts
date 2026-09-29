@@ -40,6 +40,8 @@ export interface NotificationItem {
   persistent?: boolean;
   actionLabel?: string;
   actionUrl?: string;
+  secondaryActionLabel?: string;
+  onSecondaryAction?: () => void;
 }
 
 export interface BatchJob {
@@ -50,6 +52,14 @@ export interface BatchJob {
   failed_files: number;
   result_zip_path: string | null;
   created_at: string;
+}
+
+export interface BatchLogEntry {
+  id: string;
+  file_name: string;
+  status: string;
+  reason: string | null;
+  output_file_name: string | null;
 }
 
 export interface Folder {

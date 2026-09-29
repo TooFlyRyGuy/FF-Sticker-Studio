@@ -100,6 +100,16 @@ function buildZip(files: { name: string; data: Uint8Array }[]): Uint8Array {
   return result;
 }
 
+async function logFile(supabaseAdmin: any, jobId: string, fileName: string, status: string, reason?: string, outputFileName?: string) {
+  await supabaseAdmin.from("batch_job_logs").insert([{
+    batch_job_id: jobId,
+    file_name: fileName,
+    status,
+    reason: reason || null,
+    output_file_name: outputFileName || null,
+  }]);
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
@@ -171,6 +181,7 @@ Deno.serve(async (req: Request) => {
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
+        const fileName = file.name || `image-${String(i + 1).padStart(3, "0")}`;
         try {
           const parts: any[] = [];
           if (file.base64 && file.mimeType) {
@@ -215,6 +226,8 @@ USER PROMPT: ${prompt}`;
           const candidate = response.candidates?.[0];
           if (!candidate) {
             failed++;
+            await logFile(supabaseAdmin, jobId, fileName, "failed", "Model returned no response — the image may have been blocked by content filters.");
+            await supabaseAdmin.from("batch_jobs").update({ processed_files: processed + failed, failed_files: failed }).eq("id", jobId);
             continue;
           }
 
@@ -231,7 +244,13 @@ USER PROMPT: ${prompt}`;
           }
 
           if (!imageData) {
+            const textPart = candidate.content?.parts?.find((p: any) => p.text);
+            const reason = textPart?.text
+              ? `Model returned text instead of an image: "${textPart.text.substring(0, 200)}"`
+              : "Model returned a response with no image data.";
             failed++;
+            await logFile(supabaseAdmin, jobId, fileName, "failed", reason);
+            await supabaseAdmin.from("batch_jobs").update({ processed_files: processed + failed, failed_files: failed }).eq("id", jobId);
             continue;
           }
 
@@ -247,18 +266,31 @@ USER PROMPT: ${prompt}`;
           processedImages.push({ name: imageName, data: bytes });
 
           processed++;
-          await supabaseAdmin.from("batch_jobs").update({
-            processed_files: processed + failed,
-            failed_files: failed,
-          }).eq("id", jobId);
+          await logFile(supabaseAdmin, jobId, fileName, "succeeded", undefined, imageName);
+          await supabaseAdmin.from("batch_jobs").update({ processed_files: processed + failed, failed_files: failed }).eq("id", jobId);
 
-        } catch (err) {
-          console.error(`[Batch ${jobId}] File ${i} failed:`, err);
+        } catch (err: any) {
+          let reason = "Unexpected error during processing.";
+          if (err?.message) {
+            const msg = err.message;
+            if (msg.includes("timeout") || msg.includes("deadline")) {
+              reason = "The request timed out — the model took too long to respond.";
+            } else if (msg.includes("quota") || msg.includes("rate")) {
+              reason = "API rate limit or quota exceeded.";
+            } else if (msg.includes("429")) {
+              reason = "Too many requests — rate limit hit.";
+            } else if (msg.includes("500") || msg.includes("502") || msg.includes("503")) {
+              reason = "Gemini server error — the model was temporarily unavailable.";
+            } else if (msg.includes("safety") || msg.includes("blocked") || msg.includes("PROHIBITED")) {
+              reason = "Image blocked by safety filters.";
+            } else {
+              reason = msg.substring(0, 300);
+            }
+          }
+          console.error(`[Batch ${jobId}] File ${i} (${fileName}) failed:`, err);
           failed++;
-          await supabaseAdmin.from("batch_jobs").update({
-            processed_files: processed + failed,
-            failed_files: failed,
-          }).eq("id", jobId);
+          await logFile(supabaseAdmin, jobId, fileName, "failed", reason);
+          await supabaseAdmin.from("batch_jobs").update({ processed_files: processed + failed, failed_files: failed }).eq("id", jobId);
         }
       }
 

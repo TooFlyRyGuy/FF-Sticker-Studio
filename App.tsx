@@ -14,7 +14,7 @@ import { stripBase64Prefix, getMimeType, getMimeTypeFromBase64, compressImageBas
 import { generateEditedImage, generatePromptMetadata } from './services/geminiService';
 import { savePrompt, initStorage, getFolders, getPromptById } from './services/storageService';
 import { supabase } from './services/supabaseClient';
-import { AspectRatio, ImageSize, ModelType, ProcessingState, NotificationItem, NotificationType, SavedPrompt, Folder, BatchJob } from './types';
+import { AspectRatio, ImageSize, ModelType, ProcessingState, NotificationItem, NotificationType, SavedPrompt, Folder, BatchJob, BatchLogEntry } from './types';
 import { PromptCustomField } from './components/PromptVariableBuilder';
 
 const App: React.FC = () => {
@@ -43,6 +43,8 @@ const App: React.FC = () => {
   const [batchJobId, setBatchJobId] = useState<string | null>(null);
   const [batchProgress, setBatchProgress] = useState<{ processed: number; total: number } | null>(null);
   const [isBatchSubmitting, setIsBatchSubmitting] = useState<boolean>(false);
+  const [batchLogs, setBatchLogs] = useState<BatchLogEntry[] | null>(null);
+  const [showBatchLog, setShowBatchLog] = useState<boolean>(false);
   const batchPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Saved Prompts Management
@@ -178,13 +180,44 @@ const App: React.FC = () => {
             ? `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/batch-results/${job.result_zip_path}`
             : null;
 
+          // Fetch processing logs
+          const { data: logData } = await supabase
+            .from('batch_job_logs')
+            .select('id, file_name, status, reason, output_file_name')
+            .eq('batch_job_id', jobId)
+            .order('created_at', { ascending: true });
+
+          const logs = (logData || []) as BatchLogEntry[];
+          setBatchLogs(logs);
+
+          // Find the most common failure reason for the toast summary
+          let failureSummary = '';
+          if (job.failed_files > 0 && logs.length > 0) {
+            const failedLogs = logs.filter(l => l.status === 'failed');
+            if (failedLogs.length > 0) {
+              const reasons = failedLogs.map(l => l.reason || 'Unknown error');
+              const reasonCounts: Record<string, number> = {};
+              for (const r of reasons) {
+                reasonCounts[r] = (reasonCounts[r] || 0) + 1;
+              }
+              const topReason = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1])[0];
+              if (topReason && topReason[1] === failedLogs.length) {
+                failureSummary = ` — ${topReason[0]}`;
+              } else if (topReason) {
+                failureSummary = ` — most common: ${topReason[0].substring(0, 80)}`;
+              }
+            }
+          }
+
           addNotification({
             id: `batch-done-${jobId}`,
             type: 'success',
-            message: `Your batch of ${job.total_files} images is ready! ${succeeded} succeeded${failedNote}.`,
+            message: `Your batch of ${job.total_files} images is ready! ${succeeded} succeeded${failedNote}${failureSummary}`,
             persistent: true,
             actionLabel: 'Download All',
             actionUrl: zipUrl || undefined,
+            secondaryActionLabel: job.failed_files > 0 ? 'View Details' : undefined,
+            onSecondaryAction: job.failed_files > 0 ? () => setShowBatchLog(true) : undefined,
           });
         } else if (job.status === 'failed') {
           if (batchPollRef.current) clearInterval(batchPollRef.current);
@@ -690,6 +723,46 @@ const App: React.FC = () => {
                         >
                             {isBatchSubmitting ? 'Submitting...' : batchJobId ? 'Processing...' : `Process ${batchFiles.length} Images`}
                         </button>
+                    </div>
+                )}
+                {showBatchLog && batchLogs && (
+                    <div className="w-full bg-app-surface border border-app-border rounded-lg p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">Processing Log</span>
+                            <button
+                                onClick={() => setShowBatchLog(false)}
+                                className="text-xs text-app-muted hover:text-white transition-colors"
+                            >
+                                Close
+                            </button>
+                        </div>
+                        <div className="max-h-60 overflow-y-auto space-y-1.5">
+                            {batchLogs.map((log) => (
+                                <div key={log.id} className="flex items-start gap-2 text-xs font-mono py-1 border-b border-app-border/50">
+                                    <span className="flex-shrink-0 mt-0.5">
+                                        {log.status === 'succeeded' ? (
+                                            <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                                            </svg>
+                                        ) : (
+                                            <svg className="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                                            </svg>
+                                        )}
+                                    </span>
+                                    <div className="flex-1 min-w-0">
+                                        <div className={`truncate ${log.status === 'succeeded' ? 'text-emerald-400' : 'text-red-400'}`}>
+                                            {log.file_name}
+                                        </div>
+                                        {log.reason && (
+                                            <div className="text-app-muted text-[11px] mt-0.5 leading-relaxed">
+                                                {log.reason}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
                 <ImageUpload 
