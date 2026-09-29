@@ -52,6 +52,8 @@ export interface BatchJob {
   failed_files: number;
   result_zip_path: string | null;
   error_message: string | null;
+  gemini_batch_name: string | null;
+  batch_api_state: string | null;
   created_at: string;
 }
 

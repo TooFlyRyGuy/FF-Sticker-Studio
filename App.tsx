@@ -42,6 +42,7 @@ const App: React.FC = () => {
   const [batchFiles, setBatchFiles] = useState<File[]>([]);
   const [batchJobId, setBatchJobId] = useState<string | null>(null);
   const [batchProgress, setBatchProgress] = useState<{ processed: number; total: number } | null>(null);
+  const [batchApiState, setBatchApiState] = useState<string | null>(null);
   const [isBatchSubmitting, setIsBatchSubmitting] = useState<boolean>(false);
   const [batchLogs, setBatchLogs] = useState<BatchLogEntry[] | null>(null);
   const [showBatchLog, setShowBatchLog] = useState<boolean>(false);
@@ -173,12 +174,27 @@ const App: React.FC = () => {
     if (batchPollRef.current) clearInterval(batchPollRef.current);
     let consecutiveErrors = 0;
     let notifiedComplete = false;
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
     const poll = async () => {
       try {
+        // First, call the edge function GET route to trigger Google Batch API status check
+        try {
+          await fetch(`${supabaseUrl}/functions/v1/batch-process?jobId=${jobId}`, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${supabaseAnonKey}`,
+              'apikey': supabaseAnonKey,
+            },
+          });
+        } catch {
+          // Edge function poll may fail transiently — the DB read below is the source of truth
+        }
+
         const { data, error } = await supabase
           .from('batch_jobs')
-          .select('id, status, total_files, processed_files, failed_files, result_zip_path, error_message')
+          .select('id, status, total_files, processed_files, failed_files, result_zip_path, error_message, gemini_batch_name, batch_api_state')
           .eq('id', jobId)
           .maybeSingle();
 
@@ -194,6 +210,13 @@ const App: React.FC = () => {
 
         const job = data as BatchJob;
         setBatchProgress({ processed: job.processed_files, total: job.total_files });
+        setBatchApiState(job.batch_api_state);
+
+        // Show Google Batch API state in the progress label if available
+        if (job.batch_api_state && job.status === 'processing') {
+          const stateLabel = job.batch_api_state.replace('JOB_STATE_', '').toLowerCase();
+          // The progress bar UI reads batchProgress, so the state is shown via the label text
+        }
 
         if (job.status === 'completed' && !notifiedComplete) {
           notifiedComplete = true;
@@ -201,6 +224,7 @@ const App: React.FC = () => {
           batchPollRef.current = null;
           setBatchJobId(null);
           setBatchProgress(null);
+          setBatchApiState(null);
           setBatchFiles([]);
 
           const succeeded = job.processed_files - job.failed_files;
@@ -276,6 +300,7 @@ const App: React.FC = () => {
           batchPollRef.current = null;
           setBatchJobId(null);
           setBatchProgress(null);
+          setBatchApiState(null);
           setBatchFiles([]);
 
           // Fetch logs for the details view
@@ -321,7 +346,7 @@ const App: React.FC = () => {
       try {
         const { data, error } = await supabase
           .from('batch_jobs')
-          .select('id, status, total_files, processed_files, failed_files, result_zip_path, error_message')
+          .select('id, status, total_files, processed_files, failed_files, result_zip_path, error_message, gemini_batch_name, batch_api_state')
           .eq('status', 'processing')
           .order('created_at', { ascending: false })
           .limit(1)
@@ -781,7 +806,7 @@ const App: React.FC = () => {
                             <div className="w-full bg-app-bg border border-app-border rounded-lg p-3">
                                 <div className="flex items-center justify-between mb-2">
                                     <span className="text-xs font-mono uppercase tracking-wider text-app-muted">
-                                        {batchJobId ? 'Processing' : 'Submitting'}...
+                                        {batchJobId ? (batchApiState ? `Batch ${batchApiState.replace('JOB_STATE_', '').toLowerCase()}` : 'Processing') : 'Submitting'}...
                                     </span>
                                     <span className="text-xs font-mono text-app-accent">
                                         {batchProgress.processed} / {batchProgress.total}
