@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Copy } from 'lucide-react';
-import useDrivePicker from 'react-google-drive-picker';
 
 import Header from './components/Header';
 import Button from './components/Button';
@@ -11,11 +10,11 @@ import PromptLibrary from './components/PromptLibrary';
 import PromptAssistant from './components/PromptAssistant';
 import PromptEditor from './components/PromptEditor';
 import Login from './components/Login';
-import { stripBase64Prefix, getMimeType, getMimeTypeFromBase64, compressImageBase64 } from './utils/imageUtils';
+import { stripBase64Prefix, getMimeType, getMimeTypeFromBase64, compressImageBase64, fileToBase64 } from './utils/imageUtils';
 import { generateEditedImage, generatePromptMetadata } from './services/geminiService';
 import { savePrompt, initStorage, getFolders, getPromptById } from './services/storageService';
 import { supabase } from './services/supabaseClient';
-import { AspectRatio, ImageSize, ModelType, ProcessingState, NotificationItem, NotificationType, SavedPrompt, Folder } from './types';
+import { AspectRatio, ImageSize, ModelType, ProcessingState, NotificationItem, NotificationType, SavedPrompt, Folder, BatchJob } from './types';
 import { PromptCustomField } from './components/PromptVariableBuilder';
 
 const App: React.FC = () => {
@@ -41,24 +40,10 @@ const App: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState<ModelType>(ModelType.FLASH_3_1);
   const [isBatchMode, setIsBatchMode] = useState<boolean>(false);
   const [batchFiles, setBatchFiles] = useState<File[]>([]);
-  const [saveFolderId, setSaveFolderId] = useState<string | null>(null);
-
-  const [openPicker] = useDrivePicker();
-
-  const handleOpenPicker = () => {
-    openPicker({
-        clientId: '719168742960-g01123456789.apps.googleusercontent.com', // Placeholder
-        developerKey: 'YOUR_API_KEY', // Placeholder
-        viewId: 'FOLDERS',
-        callbackFunction: (data) => {
-            if (data.action === 'picked') {
-                const folder = data.docs[0];
-                setSaveFolderId(folder.id);
-                addNotification('success', `Selected folder: ${folder.name}`);
-            }
-        },
-    });
-  };
+  const [batchJobId, setBatchJobId] = useState<string | null>(null);
+  const [batchProgress, setBatchProgress] = useState<{ processed: number; total: number } | null>(null);
+  const [isBatchSubmitting, setIsBatchSubmitting] = useState<boolean>(false);
+  const batchPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Saved Prompts Management
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
@@ -96,6 +81,142 @@ const App: React.FC = () => {
   const removeNotification = useCallback((id: string) => {
     setNotifications(prev => prev.filter(item => item.id !== id));
   }, []);
+
+  const handleBatchProcess = async () => {
+    if (!prompt.trim()) {
+      addNotification('error', 'Please enter a prompt before processing a batch.');
+      return;
+    }
+    if (batchFiles.length === 0) {
+      addNotification('error', 'Please select images for batch processing.');
+      return;
+    }
+
+    setIsBatchSubmitting(true);
+    addNotification('info', `Preparing ${batchFiles.length} images for batch processing...`);
+
+    try {
+      const filesWithBase64 = await Promise.all(
+        batchFiles.map(async (file) => {
+          const base64 = await fileToBase64(file);
+          return { name: file.name, base64: stripBase64Prefix(base64), mimeType: getMimeType(file) };
+        })
+      );
+
+      const refRawBase64 = referenceImage ? stripBase64Prefix(referenceImage) : undefined;
+      const refMimeType = referenceFile ? getMimeType(referenceFile) : (referenceImage ? getMimeTypeFromBase64(referenceImage) : undefined);
+
+      const response = await fetch('/api/batch/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          files: filesWithBase64,
+          prompt,
+          model: selectedModel,
+          aspectRatio,
+          imageSize,
+          referenceImageBase64: refRawBase64,
+          referenceMimeType: refMimeType,
+          refStrength: referenceImage ? refStrength : undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to start batch');
+      }
+
+      const { jobId } = await response.json();
+      setBatchJobId(jobId);
+      setBatchProgress({ processed: 0, total: batchFiles.length });
+      addNotification('info', `Batch submitted — we'll notify you when your files are ready for download.`);
+
+      startBatchPolling(jobId);
+    } catch (error: any) {
+      addNotification('error', error.message || 'Failed to submit batch.');
+    } finally {
+      setIsBatchSubmitting(false);
+    }
+  };
+
+  const startBatchPolling = useCallback((jobId: string) => {
+    if (batchPollRef.current) clearInterval(batchPollRef.current);
+
+    const poll = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('batch_jobs')
+          .select('id, status, total_files, processed_files, failed_files, result_zip_path')
+          .eq('id', jobId)
+          .maybeSingle();
+
+        if (error || !data) return;
+
+        const job = data as BatchJob;
+        setBatchProgress({ processed: job.processed_files, total: job.total_files });
+
+        if (job.status === 'completed') {
+          if (batchPollRef.current) clearInterval(batchPollRef.current);
+          batchPollRef.current = null;
+          setBatchJobId(null);
+          setBatchProgress(null);
+          setBatchFiles([]);
+
+          const succeeded = job.processed_files - job.failed_files;
+          const failedNote = job.failed_files > 0 ? ` (${job.failed_files} skipped)` : '';
+          const zipUrl = job.result_zip_path
+            ? `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/batch-results/${job.result_zip_path}`
+            : null;
+
+          addNotification({
+            id: `batch-done-${jobId}`,
+            type: 'success',
+            message: `Your batch of ${job.total_files} images is ready! ${succeeded} succeeded${failedNote}.`,
+            persistent: true,
+            actionLabel: 'Download All',
+            actionUrl: zipUrl || undefined,
+          } as any);
+        } else if (job.status === 'failed') {
+          if (batchPollRef.current) clearInterval(batchPollRef.current);
+          batchPollRef.current = null;
+          setBatchJobId(null);
+          setBatchProgress(null);
+          addNotification('error', 'Batch processing failed. Please try again.');
+        }
+      } catch (e) {
+ // ignore polling errors
+      }
+    };
+
+    poll();
+    batchPollRef.current = setInterval(poll, 30000);
+  }, [addNotification]);
+
+  useEffect(() => {
+    return () => {
+      if (batchPollRef.current) clearInterval(batchPollRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const checkPendingBatches = async () => {
+      const { data } = await supabase
+        .from('batch_jobs')
+        .select('id, status, total_files, processed_files, failed_files, result_zip_path')
+        .eq('status', 'processing')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (data) {
+        const job = data as BatchJob;
+        setBatchJobId(job.id);
+        setBatchProgress({ processed: job.processed_files, total: job.total_files });
+        startBatchPolling(job.id);
+      }
+    };
+    checkPendingBatches();
+  }, [startBatchPolling]);
 
   useEffect(() => {
     const init = async () => {
@@ -534,17 +655,30 @@ const App: React.FC = () => {
                 />
                 {isBatchMode && batchFiles.length > 0 && (
                     <div className="space-y-2">
-                        <button 
-                            onClick={handleOpenPicker}
-                            className={`w-full py-2 border rounded-lg text-xs uppercase font-mono ${saveFolderId ? 'bg-app-accent text-white border-app-accent' : 'bg-app-surface border-app-border text-white'}`}
+                        {batchProgress && (
+                            <div className="w-full bg-app-bg border border-app-border rounded-lg p-3">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-xs font-mono uppercase tracking-wider text-app-muted">
+                                        {batchJobId ? 'Processing' : 'Submitting'}...
+                                    </span>
+                                    <span className="text-xs font-mono text-app-accent">
+                                        {batchProgress.processed} / {batchProgress.total}
+                                    </span>
+                                </div>
+                                <div className="w-full h-1.5 bg-app-border rounded-full overflow-hidden">
+                                    <div
+                                        className="h-full bg-app-accent transition-all duration-500"
+                                        style={{ width: `${batchProgress.total > 0 ? (batchProgress.processed / batchProgress.total) * 100 : 0}%` }}
+                                    />
+                                </div>
+                            </div>
+                        )}
+                        <button
+                            onClick={handleBatchProcess}
+                            disabled={isBatchSubmitting || !!batchJobId}
+                            className="w-full py-2 bg-app-accent text-white font-semibold rounded-lg text-xs uppercase disabled:opacity-50 disabled:cursor-not-allowed hover:bg-app-accentHover transition-colors"
                         >
-                            {saveFolderId ? 'Folder Selected' : 'Select Save Folder'}
-                        </button>
-                        <button 
-                            onClick={() => addNotification('info', 'Submitting batch to Gemini...')}
-                            className="w-full py-2 bg-app-accent text-white font-semibold rounded-lg text-xs uppercase"
-                        >
-                            Process {batchFiles.length} Images
+                            {isBatchSubmitting ? 'Submitting...' : batchJobId ? 'Processing...' : `Process ${batchFiles.length} Images`}
                         </button>
                     </div>
                 )}

@@ -37,6 +37,19 @@ export interface NotificationItem {
   id: string;
   type: NotificationType;
   message: string;
+  persistent?: boolean;
+  actionLabel?: string;
+  actionUrl?: string;
+}
+
+export interface BatchJob {
+  id: string;
+  status: string;
+  total_files: number;
+  processed_files: number;
+  failed_files: number;
+  result_zip_path: string | null;
+  created_at: string;
 }
 
 export interface Folder {
