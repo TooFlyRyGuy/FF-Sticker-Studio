@@ -51,6 +51,7 @@ export interface BatchJob {
   processed_files: number;
   failed_files: number;
   result_zip_path: string | null;
+  error_message: string | null;
   created_at: string;
 }
 

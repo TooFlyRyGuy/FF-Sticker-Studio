@@ -134,11 +134,29 @@ const App: React.FC = () => {
       });
 
       if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || 'Failed to start batch');
+        let errMsg = 'Failed to start batch.';
+        try {
+          const err = await response.json();
+          if (err?.error) errMsg = err.error;
+        } catch {
+          // response wasn't JSON — use generic message
+        }
+        throw new Error(errMsg);
       }
 
-      const { jobId } = await response.json();
+      let jobId: string;
+      try {
+        const result = await response.json();
+        if (!result?.jobId) {
+          throw new Error('The batch service returned an unexpected response. Please try again.');
+        }
+        jobId = result.jobId;
+      } catch (parseErr) {
+        if (parseErr instanceof Error && !parseErr.message.includes('unexpected response')) {
+          throw new Error('Could not read the batch service response. Please try again.');
+        }
+        throw parseErr;
+      }
       setBatchJobId(jobId);
       setBatchProgress({ processed: 0, total: batchFiles.length });
       addNotification('info', `Batch submitted — we'll notify you when your files are ready for download.`);
@@ -153,21 +171,32 @@ const App: React.FC = () => {
 
   const startBatchPolling = useCallback((jobId: string) => {
     if (batchPollRef.current) clearInterval(batchPollRef.current);
+    let consecutiveErrors = 0;
+    let notifiedComplete = false;
 
     const poll = async () => {
       try {
         const { data, error } = await supabase
           .from('batch_jobs')
-          .select('id, status, total_files, processed_files, failed_files, result_zip_path')
+          .select('id, status, total_files, processed_files, failed_files, result_zip_path, error_message')
           .eq('id', jobId)
           .maybeSingle();
 
-        if (error || !data) return;
+        if (error || !data) {
+          consecutiveErrors++;
+          if (consecutiveErrors >= 3) {
+            addNotification('error', 'Having trouble checking batch status — will keep trying. If this persists, the batch may still be processing in the background.');
+            consecutiveErrors = 0;
+          }
+          return;
+        }
+        consecutiveErrors = 0;
 
         const job = data as BatchJob;
         setBatchProgress({ processed: job.processed_files, total: job.total_files });
 
-        if (job.status === 'completed') {
+        if (job.status === 'completed' && !notifiedComplete) {
+          notifiedComplete = true;
           if (batchPollRef.current) clearInterval(batchPollRef.current);
           batchPollRef.current = null;
           setBatchJobId(null);
@@ -209,25 +238,71 @@ const App: React.FC = () => {
             }
           }
 
-          addNotification({
-            id: `batch-done-${jobId}`,
-            type: 'success',
-            message: `Your batch of ${job.total_files} images is ready! ${succeeded} succeeded${failedNote}${failureSummary}`,
-            persistent: true,
-            actionLabel: 'Download All',
-            actionUrl: zipUrl || undefined,
-            secondaryActionLabel: job.failed_files > 0 ? 'View Details' : undefined,
-            onSecondaryAction: job.failed_files > 0 ? () => setShowBatchLog(true) : undefined,
-          });
-        } else if (job.status === 'failed') {
+          // If ZIP failed but images succeeded, show a different notification
+          if (!zipUrl && succeeded > 0) {
+            addNotification({
+              id: `batch-done-${jobId}`,
+              type: 'error',
+              message: job.error_message || `Images processed (${succeeded} succeeded, ${job.failed_files} failed) but the download file could not be created. Tap "View Details" to see per-file results.`,
+              persistent: true,
+              secondaryActionLabel: 'View Details',
+              onSecondaryAction: () => setShowBatchLog(true),
+            });
+          } else if (succeeded === 0) {
+            // All images failed but status is completed (edge case)
+            addNotification({
+              id: `batch-done-${jobId}`,
+              type: 'error',
+              message: job.error_message || `All ${job.total_files} images failed to process. Tap "View Details" to see what went wrong.`,
+              persistent: true,
+              secondaryActionLabel: 'View Details',
+              onSecondaryAction: () => setShowBatchLog(true),
+            });
+          } else {
+            addNotification({
+              id: `batch-done-${jobId}`,
+              type: 'success',
+              message: `Your batch of ${job.total_files} images is ready! ${succeeded} succeeded${failedNote}${failureSummary}`,
+              persistent: true,
+              actionLabel: zipUrl ? 'Download All' : undefined,
+              actionUrl: zipUrl || undefined,
+              secondaryActionLabel: job.failed_files > 0 ? 'View Details' : undefined,
+              onSecondaryAction: job.failed_files > 0 ? () => setShowBatchLog(true) : undefined,
+            });
+          }
+        } else if (job.status === 'failed' && !notifiedComplete) {
+          notifiedComplete = true;
           if (batchPollRef.current) clearInterval(batchPollRef.current);
           batchPollRef.current = null;
           setBatchJobId(null);
           setBatchProgress(null);
-          addNotification('error', 'Batch processing failed. Please try again.');
+          setBatchFiles([]);
+
+          // Fetch logs for the details view
+          const { data: logData } = await supabase
+            .from('batch_job_logs')
+            .select('id, file_name, status, reason, output_file_name')
+            .eq('batch_job_id', jobId)
+            .order('created_at', { ascending: true });
+          const logs = (logData || []) as BatchLogEntry[];
+          setBatchLogs(logs);
+
+          const reason = job.error_message || 'All images failed to process. Please try again.';
+          addNotification({
+            id: `batch-failed-${jobId}`,
+            type: 'error',
+            message: reason,
+            persistent: true,
+            secondaryActionLabel: logs.length > 0 ? 'View Details' : undefined,
+            onSecondaryAction: logs.length > 0 ? () => setShowBatchLog(true) : undefined,
+          });
         }
       } catch (e) {
- // ignore polling errors
+        consecutiveErrors++;
+        if (consecutiveErrors >= 3) {
+          addNotification('error', 'Having trouble checking batch status — will keep trying. If this persists, the batch may still be processing in the background.');
+          consecutiveErrors = 0;
+        }
       }
     };
 
@@ -243,19 +318,23 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const checkPendingBatches = async () => {
-      const { data } = await supabase
-        .from('batch_jobs')
-        .select('id, status, total_files, processed_files, failed_files, result_zip_path')
-        .eq('status', 'processing')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      try {
+        const { data, error } = await supabase
+          .from('batch_jobs')
+          .select('id, status, total_files, processed_files, failed_files, result_zip_path, error_message')
+          .eq('status', 'processing')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
-      if (data) {
+        if (error || !data) return;
+
         const job = data as BatchJob;
         setBatchJobId(job.id);
         setBatchProgress({ processed: job.processed_files, total: job.total_files });
         startBatchPolling(job.id);
+      } catch {
+        // If we can't check for pending batches, don't block the app
       }
     };
     checkPendingBatches();

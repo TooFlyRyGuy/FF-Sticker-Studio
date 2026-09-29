@@ -296,9 +296,11 @@ USER PROMPT: ${prompt}`;
 
       // Build ZIP and upload
       if (processed > 0) {
+        let zipUploaded = false;
+        let zipPath: string | null = null;
         try {
           const zipData = buildZip(processedImages);
-          const zipPath = `${jobId}/results.zip`;
+          zipPath = `${jobId}/results.zip`;
 
           const { error: zipUploadError } = await supabaseAdmin.storage
             .from("batch-results")
@@ -309,40 +311,98 @@ USER PROMPT: ${prompt}`;
 
           if (zipUploadError) {
             console.error(`[Batch ${jobId}] ZIP upload failed:`, zipUploadError);
+            zipPath = null;
+          } else {
+            zipUploaded = true;
           }
+        } catch (zipErr) {
+          console.error(`[Batch ${jobId}] ZIP creation failed:`, zipErr);
+          zipPath = null;
+        }
 
+        if (zipUploaded && zipPath) {
+          const failMsg = failed > 0 ? ` (${failed} of ${files.length} images skipped)` : "";
           await supabaseAdmin.from("batch_jobs").update({
             status: "completed",
             processed_files: processed + failed,
             failed_files: failed,
             result_zip_path: zipPath,
+            error_message: failed > 0 ? `${failed} image(s) failed processing` : null,
           }).eq("id", jobId);
-
           console.log(`[Batch ${jobId}] Completed: ${processed} ok, ${failed} failed`);
-        } catch (zipErr) {
-          console.error(`[Batch ${jobId}] ZIP creation failed:`, zipErr);
+        } else {
+          // Images processed but ZIP couldn't be created or uploaded
           await supabaseAdmin.from("batch_jobs").update({
             status: "completed",
             processed_files: processed + failed,
             failed_files: failed,
             result_zip_path: null,
+            error_message: `Images processed (${processed} succeeded, ${failed} failed) but the download file could not be created. Check the details view for per-file results.`,
           }).eq("id", jobId);
+          console.error(`[Batch ${jobId}] ZIP failed — ${processed} images processed but no download available`);
         }
       } else {
+        // All images failed — determine the most common reason
+        let topReason = "All images failed to process.";
+        try {
+          const { data: failLogs } = await supabaseAdmin
+            .from("batch_job_logs")
+            .select("reason")
+            .eq("batch_job_id", jobId)
+            .eq("status", "failed");
+
+          if (failLogs && failLogs.length > 0) {
+            const reasonCounts: Record<string, number> = {};
+            for (const log of failLogs) {
+              const r = log.reason || "Unknown error";
+              reasonCounts[r] = (reasonCounts[r] || 0) + 1;
+            }
+            const top = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1])[0];
+            if (top) {
+              topReason = top[1] === failLogs.length
+                ? `All ${failed} images failed: ${top[0]}`
+                : `All ${failed} images failed — most common reason: ${top[0].substring(0, 150)}`;
+            }
+          }
+        } catch {
+          // If we can't fetch logs, use the generic message
+        }
+
         await supabaseAdmin.from("batch_jobs").update({
           status: "failed",
           processed_files: 0,
           failed_files: failed,
+          error_message: topReason,
         }).eq("id", jobId);
-        console.error(`[Batch ${jobId}] All ${failed} files failed`);
+        console.error(`[Batch ${jobId}] All ${failed} files failed: ${topReason}`);
       }
     };
 
     // Use waitUntil for background processing
     if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
-      EdgeRuntime.waitUntil(processBatch());
+      EdgeRuntime.waitUntil(processBatch().catch(async (err) => {
+        console.error(`[Batch ${jobId}] Background processing crashed:`, err);
+        try {
+          await supabaseAdmin.from("batch_jobs").update({
+            status: "failed",
+            error_message: "Batch processing stopped unexpectedly due to a server error. Please try again.",
+          }).eq("id", jobId);
+        } catch {
+          // best-effort cleanup
+        }
+      }));
     } else {
-      processBatch().catch(console.error);
+      processBatch().catch(async (err) => {
+        console.error(`[Batch ${jobId}] Background processing crashed:`, err);
+        try {
+          await supabaseAdmin.from("batch_jobs").update({
+            status: "failed",
+            error_message: "Batch processing stopped unexpectedly due to a server error. Please try again.",
+          }).eq("id", jobId);
+        } catch {
+          // best-effort cleanup
+        }
+      });
     }
 
     return new Response(JSON.stringify({ jobId }), {
