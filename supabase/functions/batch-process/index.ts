@@ -1,5 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { GoogleGenAI } from "npm:@google/genai@1.30.0";
+import { PNG } from "npm:pngjs@7";
+import * as jpeg from "npm:jpeg-js@0.4.4";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -164,6 +166,51 @@ function base64ToBytes(b64: string): Uint8Array {
   return bytes;
 }
 
+function decodeImage(bytes: Uint8Array, mimeType: string): { width: number; height: number; data: Buffer } | null {
+  try {
+    if (mimeType === "image/jpeg" || mimeType === "image/jpg") {
+      const raw = jpeg.decode(bytes, { maxResolutionInDP: 4096 });
+      return { width: raw.width, height: raw.height, data: raw.data };
+    }
+    // Default: try PNG
+    const png = PNG.sync.read(bytes);
+    return { width: png.width, height: png.height, data: png.data };
+  } catch (e) {
+    console.error("Failed to decode image for overlay:", e);
+    return null;
+  }
+}
+
+function compositeOverlayOnImage(baseBytes: Uint8Array, baseMime: string, overlayBytes: Uint8Array, overlayMime: string): Uint8Array {
+  const base = decodeImage(baseBytes, baseMime);
+  const overlay = decodeImage(overlayBytes, overlayMime);
+  if (!base || !overlay) return baseBytes;
+
+  // Scale overlay to cover base image (simple nearest-neighbor)
+  const result = PNG.sync.read(baseBytes);
+  const baseData = result.data;
+  const overlayData = overlay.data;
+
+  for (let y = 0; y < result.height; y++) {
+    const srcY = Math.floor(y * overlay.height / result.height);
+    for (let x = 0; x < result.width; x++) {
+      const srcX = Math.floor(x * overlay.width / result.width);
+      const baseIdx = (y * result.width + x) * 4;
+      const overlayIdx = (srcY * overlay.width + srcX) * 4;
+
+      const alpha = overlayData[overlayIdx + 3] / 255;
+      if (alpha === 0) continue;
+
+      baseData[baseIdx] = Math.round(baseData[baseIdx] * (1 - alpha) + overlayData[overlayIdx] * alpha);
+      baseData[baseIdx + 1] = Math.round(baseData[baseIdx + 1] * (1 - alpha) + overlayData[overlayIdx + 1] * alpha);
+      baseData[baseIdx + 2] = Math.round(baseData[baseIdx + 2] * (1 - alpha) + overlayData[overlayIdx + 2] * alpha);
+      // Keep base alpha (255 for opaque images)
+    }
+  }
+
+  return PNG.sync.write({ width: result.width, height: result.height, data: baseData });
+}
+
 function extractImageFromResponse(response: any): { data: string; mime: string } | null {
   const candidate = response?.candidates?.[0];
   if (!candidate) return null;
@@ -251,7 +298,8 @@ async function finalizeJob(supabaseAdmin: any, jobId: string, processed: number,
 async function processSequential(
   genAI: any, supabaseAdmin: any, jobId: string,
   files: any[], prompt: string, model: string, aspectRatio: string,
-  imageSize: string, referenceImages: RefImage[], refStrength?: number
+  imageSize: string, referenceImages: RefImage[], refStrength?: number,
+  overlayImage?: RefImage | null
 ) {
   const isHighFidelity = model.includes("pro") || model.includes("3.1-flash-image");
   let processed = 0;
@@ -283,9 +331,14 @@ async function processSequential(
         continue;
       }
 
-      const fileExt = img.mime === "image/jpeg" ? "jpg" : img.mime === "image/webp" ? "webp" : "png";
+      const fileExt = overlayImage ? "png" : (img.mime === "image/jpeg" ? "jpg" : img.mime === "image/webp" ? "webp" : "png");
       const imageName = `image-${String(i + 1).padStart(3, "0")}.${fileExt}`;
-      processedImages.push({ name: imageName, data: base64ToBytes(img.data) });
+      let imageBytes = base64ToBytes(img.data);
+      if (overlayImage) {
+        const overlayBytes = base64ToBytes(overlayImage.base64);
+        imageBytes = compositeOverlayOnImage(imageBytes, img.mime, overlayBytes, overlayImage.mimeType);
+      }
+      processedImages.push({ name: imageName, data: imageBytes });
       processed++;
       await logFile(supabaseAdmin, jobId, fileName, "succeeded", undefined, imageName);
       await supabaseAdmin.from("batch_jobs").update({ processed_files: processed + failed, failed_files: failed }).eq("id", jobId);
@@ -305,7 +358,8 @@ async function processSequential(
 async function processViaBatchApi(
   genAI: any, supabaseAdmin: any, jobId: string,
   files: any[], prompt: string, model: string, aspectRatio: string,
-  imageSize: string, referenceImages: RefImage[], refStrength?: number
+  imageSize: string, referenceImages: RefImage[], refStrength?: number,
+  overlayImage?: RefImage | null
 ): Promise<boolean> {
   const isHighFidelity = model.includes("pro") || model.includes("3.1-flash-image");
   const inlinedRequests: any[] = [];
@@ -405,9 +459,14 @@ async function processViaBatchApi(
         continue;
       }
 
-      const fileExt = img.mime === "image/jpeg" ? "jpg" : img.mime === "image/webp" ? "webp" : "png";
+      const fileExt = overlayImage ? "png" : (img.mime === "image/jpeg" ? "jpg" : img.mime === "image/webp" ? "webp" : "png");
       const imageName = `image-${String(i + 1).padStart(3, "0")}.${fileExt}`;
-      processedImages.push({ name: imageName, data: base64ToBytes(img.data) });
+      let imageBytes = base64ToBytes(img.data);
+      if (overlayImage) {
+        const overlayBytes = base64ToBytes(overlayImage.base64);
+        imageBytes = compositeOverlayOnImage(imageBytes, img.mime, overlayBytes, overlayImage.mimeType);
+      }
+      processedImages.push({ name: imageName, data: imageBytes });
       processed++;
       await logFile(supabaseAdmin, jobId, fileName, "succeeded", undefined, imageName);
     } catch (err: any) {
@@ -610,11 +669,15 @@ Deno.serve(async (req: Request) => {
   // --- POST route: submit a new batch ---
   try {
     const body = await req.json();
-    const { files, prompt, model, aspectRatio, imageSize, referenceImages, refStrength } = body;
+    const { files, prompt, model, aspectRatio, imageSize, referenceImages, refStrength, overlayImage } = body;
 
     const refs: RefImage[] = Array.isArray(referenceImages)
       ? referenceImages.filter((r: RefImage) => r.base64 && r.mimeType)
       : [];
+
+    const overlay: RefImage | null = overlayImage && overlayImage.base64 && overlayImage.mimeType
+      ? { base64: overlayImage.base64, mimeType: overlayImage.mimeType }
+      : null;
 
     if (!files || !Array.isArray(files) || files.length === 0) {
       return new Response(JSON.stringify({ error: "No files provided." }), {
@@ -656,7 +719,7 @@ Deno.serve(async (req: Request) => {
       const batchSuccess = await processViaBatchApi(
         genAI, supabaseAdmin, jobId,
         files, prompt, model, aspectRatio, imageSize,
-        refs, refStrength
+        refs, refStrength, overlay
       );
 
       if (!batchSuccess) {
@@ -669,7 +732,7 @@ Deno.serve(async (req: Request) => {
         await processSequential(
           genAI, supabaseAdmin, jobId,
           files, prompt, model, aspectRatio, imageSize,
-          refs, refStrength
+          refs, refStrength, overlay
         );
       }
     };

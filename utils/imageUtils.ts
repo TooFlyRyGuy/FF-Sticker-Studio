@@ -78,6 +78,47 @@ export const base64ToBlob = (base64: string, mimeType: string): Blob => {
 /**
  * Compresses a Base64 image string to WebP format, reducing size for storage.
  */
+/**
+ * Composites an overlay image on top of a base image using canvas.
+ * The overlay is scaled to cover the base image dimensions.
+ * Returns a data URL (PNG) of the composited result.
+ */
+export const compositeOverlay = async (
+  baseImageDataUrl: string,
+  overlayDataUrl: string
+): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const baseImg = new Image();
+    const overlayImg = new Image();
+    let loaded = 0;
+
+    const tryComposite = () => {
+      loaded++;
+      if (loaded < 2) return;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = baseImg.naturalWidth;
+      canvas.height = baseImg.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Could not get canvas context'));
+        return;
+      }
+
+      ctx.drawImage(baseImg, 0, 0);
+      ctx.drawImage(overlayImg, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/png'));
+    };
+
+    baseImg.onload = tryComposite;
+    overlayImg.onload = tryComposite;
+    baseImg.onerror = () => reject(new Error('Failed to load base image'));
+    overlayImg.onerror = () => reject(new Error('Failed to load overlay image'));
+    baseImg.src = baseImageDataUrl;
+    overlayImg.src = overlayDataUrl;
+  });
+};
+
 export const compressImageBase64 = async (base64String: string | null): Promise<string | null> => {
   if (!base64String) return base64String;
   try {

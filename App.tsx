@@ -10,7 +10,7 @@ import PromptLibrary from './components/PromptLibrary';
 import PromptAssistant from './components/PromptAssistant';
 import PromptEditor from './components/PromptEditor';
 import Login from './components/Login';
-import { stripBase64Prefix, getMimeType, getMimeTypeFromBase64, compressImageBase64, fileToBase64 } from './utils/imageUtils';
+import { stripBase64Prefix, getMimeType, getMimeTypeFromBase64, compressImageBase64, fileToBase64, compositeOverlay } from './utils/imageUtils';
 import { generateEditedImage, generatePromptMetadata } from './services/geminiService';
 
 const MAX_REFERENCES = 4;
@@ -37,6 +37,9 @@ const App: React.FC = () => {
   
   const [referenceImages, setReferenceImages] = useState<ReferenceImageSlot[]>([]);
   const [refStrength, setRefStrength] = useState<number>(50);
+  const [overlayImage, setOverlayImage] = useState<string | null>(null);
+  const [overlayFile, setOverlayFile] = useState<File | null>(null);
+  const [showOverlaySlot, setShowOverlaySlot] = useState<boolean>(false);
 
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   
@@ -142,6 +145,7 @@ const App: React.FC = () => {
           imageSize,
           referenceImages: refImagesForApi.length > 0 ? refImagesForApi : undefined,
           refStrength: refImagesForApi.length > 0 ? refStrength : undefined,
+          overlayImage: overlayImage ? { base64: stripBase64Prefix(overlayImage), mimeType: overlayFile ? getMimeType(overlayFile) : getMimeTypeFromBase64(overlayImage) } : undefined,
         }),
       });
 
@@ -406,6 +410,18 @@ const App: React.FC = () => {
     setReferenceImages(prev => prev.filter(s => s.id !== slotId));
   };
 
+  const handleOverlayChange = (file: File, base64: string) => {
+    setOverlayFile(file);
+    setOverlayImage(base64);
+    addNotification('info', 'Overlay image uploaded.');
+  };
+
+  const handleOverlayRemove = () => {
+    setOverlayFile(null);
+    setOverlayImage(null);
+    setShowOverlaySlot(false);
+  };
+
   const handleAddReference = () => {
     setReferenceImages(prev => {
       if (prev.length >= MAX_REFERENCES) return prev;
@@ -465,6 +481,9 @@ const App: React.FC = () => {
       } else {
         setReferenceImages([]);
       }
+      setOverlayImage(null);
+      setOverlayFile(null);
+      setShowOverlaySlot(false);
       setGeneratedImage(null); // Clear previously generated image when exploring newly loaded prompts
       setIsLibraryOpen(false);
       addNotification('success', `Loaded "${fullPrompt.name}"`);
@@ -680,7 +699,16 @@ const App: React.FC = () => {
         model: selectedModel
       });
 
-      setGeneratedImage(resultImage);
+      let finalImage = resultImage;
+      if (overlayImage) {
+        try {
+          finalImage = await compositeOverlay(resultImage, overlayImage);
+        } catch (e) {
+          console.error('Overlay compositing failed:', e);
+        }
+      }
+
+      setGeneratedImage(finalImage);
       
       if (!activePromptId && (!activePromptName || !activePromptDescription)) {
         setStatus({ isLoading: true, error: null, progress: 'Generating suggested metadata...' });
@@ -917,6 +945,25 @@ const App: React.FC = () => {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                     </svg>
                     Add Reference Image
+                  </button>
+                )}
+                {showOverlaySlot ? (
+                  <ImageUpload 
+                    label="Overlay Image"
+                    image={overlayImage}
+                    onImageChange={handleOverlayChange}
+                    onError={handleUploadError}
+                    onRemove={handleOverlayRemove}
+                  />
+                ) : (
+                  <button
+                    onClick={() => setShowOverlaySlot(true)}
+                    className="w-full py-2.5 border border-dashed border-app-border rounded-lg text-xs font-mono uppercase tracking-wider text-app-muted hover:text-app-accent hover:border-app-accent/50 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    Add Overlay Image
                   </button>
                 )}
               </div>
