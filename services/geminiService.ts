@@ -29,10 +29,24 @@ const ensureBase64 = async (data: string, defaultMime: string): Promise<{ data: 
       return { data: base64Data, mime: blob.type || defaultMime };
     } catch (e) {
       console.error("Failed to fetch image URL:", e);
-      return { data, mime: defaultMime }; // fallback
+      return { data, mime: defaultMime };
     }
   }
   return { data, mime: defaultMime };
+};
+
+const getEdgeFunctionUrl = (): string => {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  return `${supabaseUrl}/functions/v1/gemini-generate`;
+};
+
+const getAuthHeaders = (): Record<string, string> => {
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${supabaseAnonKey}`,
+    'apikey': supabaseAnonKey,
+  };
 };
 
 export const generateEditedImage = async (params: EditImageParams): Promise<string> => {
@@ -50,9 +64,9 @@ export const generateEditedImage = async (params: EditImageParams): Promise<stri
     referenceMimeType = result.mime;
   }
 
-  const response = await fetch('/api/gemini/generate', {
+  const response = await fetch(getEdgeFunctionUrl(), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({
       params: {
         imageBase64,
@@ -90,7 +104,6 @@ export const generatePromptIdeas = async (currentPrompt: string, instruction: st
     const data = await response.json();
     if (data.error) throw new Error(data.error);
 
-    // Parse the text from the server response (which is a JSON string from Gemini)
     const parsed = JSON.parse(data.text);
     if (Array.isArray(parsed)) {
       return parsed.map(String);
@@ -126,16 +139,12 @@ export const generatePromptMetadata = async (prompt: string): Promise<{name: str
   }
 };
 
-const handleGeminiError = (error: any) => {
-    // ... (rest of handleGeminiError logic if still needed, but backend handles most now)
-};
-
-/**
- * Helper to check if a Gemini API key is selected.
- */
 export const checkApiKeySelection = async (): Promise<boolean> => {
   try {
-    const res = await fetch('/api/config');
+    const res = await fetch(getEdgeFunctionUrl(), {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    });
     const data = await res.json();
     return !!data.hasKey;
   } catch (e) {
@@ -143,10 +152,6 @@ export const checkApiKeySelection = async (): Promise<boolean> => {
   }
 };
 
-/**
- * Helper to prompt for a Gemini API key selection.
- */
 export const promptForApiKey = async (): Promise<void> => {
-  // In AI Studio, the platform handles key selection via UI.
-  console.log("Please ensure a Gemini API key is configured in the Settings menu.");
+  console.log("The Gemini API key is configured server-side in Supabase Secrets. No client-side key selection needed.");
 };
