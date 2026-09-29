@@ -602,7 +602,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-app-bg text-app-text font-sans selection:bg-app-accent/30 w-full overflow-x-hidden">
-      <Header />
+      <Header notifications={notifications} onDismissNotification={removeNotification} />
       <NotificationContainer notifications={notifications} removeNotification={removeNotification} />
 
       <PromptLibrary 
