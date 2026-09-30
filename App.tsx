@@ -67,7 +67,7 @@ const App: React.FC = () => {
   const [sourceFile, setSourceFile] = useState<File | null>(null);
   
   const [referenceImages, setReferenceImages] = useState<ReferenceImageSlot[]>([]);
-  const [refStrength, setRefStrength] = useState<number>(50);
+  const [refStrength, setRefStrength] = useState<number>(30);
   const [overlayImage, setOverlayImage] = useState<string | null>(null);
   const [overlayFile, setOverlayFile] = useState<File | null>(null);
   const [showOverlaySlot, setShowOverlaySlot] = useState<boolean>(false);

@@ -119,16 +119,20 @@ interface RefImage {
 
 function buildPromptForFile(file: any, prompt: string, referenceImages: RefImage[], refStrength?: number): string {
   if (file.base64 && referenceImages.length > 0) {
-    const refLabels = referenceImages.map((_, i) => `Reference Image ${i + 1}`).join(", ");
-    let finalPrompt = `You are given ${referenceImages.length + 1} images and a text prompt.
+    const refCount = referenceImages.length;
+    const refLabels = referenceImages.map((_, i) => `Image ${i + 2}`).join(", ");
+    let finalPrompt = `You are given ${refCount + 1} images and a text prompt.
 
-- The FIRST image is the SOURCE PHOTO. This is the person/subject you are editing. You MUST preserve their face, identity, facial features, body shape, and likeness exactly. This is non-negotiable.
-- The remaining image(s) are REFERENCE IMAGES (${refLabels}). Use them for lighting, color grading, mood, composition, texture, and artistic direction. IGNORE the face, body, identity, and any person in the reference images entirely.
-- DO NOT blend faces. DO NOT use any reference image's identity. The output must clearly show the FIRST image's person, influenced by the reference image(s).
+CRITICAL IMAGE ORDERING — READ CAREFULLY:
+- Image 1 (sent FIRST in this request) is the SOURCE PHOTO. This is the ONLY person/subject you are editing. You MUST preserve their face, identity, facial features, body shape, skin tone, and likeness exactly. This is non-negotiable and always takes priority over everything else.
+- ${refLabels} (sent AFTER the source photo) ${refCount === 1 ? "is a REFERENCE IMAGE" : "are REFERENCE IMAGES"}. Use ${refCount === 1 ? "it" : "them"} ONLY for lighting, color grading, mood, composition, texture, and artistic direction.
+- UNDER NO CIRCUMSTANCES should the output contain any facial features, face shape, skin tone, hairstyle, expression, or identity from the reference image(s). The reference is for lighting, color, and atmosphere ONLY.
+- DO NOT blend faces. DO NOT transfer any facial feature from the reference. DO NOT use any reference image's identity. If you cannot determine which image is the source, ALWAYS default to the FIRST image provided.
+- The output must clearly show Image 1's person, influenced by the reference image(s) style only.
 
 USER PROMPT: ${prompt}`;
     if (refStrength !== undefined) {
-      finalPrompt += `\n\nREFERENCE INFLUENCE: ${refStrength}/100. Apply this strength to the reference influence (lighting, colors, texture) only. Identity preservation of the FIRST image is always 100/100.`;
+      finalPrompt += `\n\nREFERENCE INFLUENCE: ${refStrength}/100. Apply this strength to the reference influence (lighting, colors, texture) only. Identity preservation of Image 1 is always 100/100 regardless of this setting.`;
     }
     return finalPrompt;
   } else if (file.base64) {
