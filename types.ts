@@ -70,6 +70,11 @@ export interface Folder {
   name: string;
 }
 
+export interface SavedPromptReferenceImage {
+  url: string;
+  strength: number;
+}
+
 export interface SavedPrompt {
   id: string;
   name: string;
@@ -78,6 +83,8 @@ export interface SavedPrompt {
   prompt_text: string;
   preview_image_url?: string | null;
   reference_image_url?: string | null;
+  reference_strength?: number | null;
+  reference_images?: SavedPromptReferenceImage[] | null;
   is_active?: boolean;
   usage_count?: number;
   created_at?: string;

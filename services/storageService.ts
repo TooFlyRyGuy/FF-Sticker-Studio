@@ -47,7 +47,7 @@ export const getPrompts = async (page: number = 0, limit: number = 24): Promise<
 
   const { data, error, count } = await supabase
     .from('prompts')
-    .select('id, name, description, category, prompt_text, preview_image_url, is_active, usage_count, created_at, updated_at, tags, is_public, user_id', { count: 'exact' })
+    .select('id, name, description, category, prompt_text, preview_image_url, reference_strength, reference_images, is_active, usage_count, created_at, updated_at, tags, is_public, user_id', { count: 'exact' })
     .order('updated_at', { ascending: false })
     .range(from, to);
 
@@ -61,7 +61,7 @@ export const getPrompts = async (page: number = 0, limit: number = 24): Promise<
 export const getAllPromptMetadata = async (): Promise<SavedPrompt[]> => {
   const { data, error } = await supabase
     .from('prompts')
-    .select('id, name, description, category, is_active, usage_count, created_at, updated_at, tags, is_public, user_id')
+    .select('id, name, description, category, reference_strength, reference_images, is_active, usage_count, created_at, updated_at, tags, is_public, user_id')
     .order('updated_at', { ascending: false })
     .limit(1000);
 

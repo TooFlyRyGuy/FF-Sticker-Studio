@@ -19,10 +19,11 @@ interface ReferenceImageSlot {
   id: string;
   image: string | null;
   file: File | null;
+  strength: number;
 }
 import { savePrompt, initStorage, getFolders, getPromptById, uploadImageToStorage } from './services/storageService';
 import { supabase } from './services/supabaseClient';
-import { AspectRatio, ImageSize, ModelType, ProcessingState, NotificationItem, NotificationType, SavedPrompt, Folder, BatchJob, BatchLogEntry } from './types';
+import { AspectRatio, ImageSize, ModelType, ProcessingState, NotificationItem, NotificationType, SavedPrompt, SavedPromptReferenceImage, Folder, BatchJob, BatchLogEntry } from './types';
 import { PromptCustomField } from './components/PromptVariableBuilder';
 
 const App: React.FC = () => {
@@ -437,6 +438,10 @@ const App: React.FC = () => {
     addNotification('info', 'Reference image uploaded.');
   };
 
+  const handleReferenceStrengthChange = (slotId: string, strength: number) => {
+    setReferenceImages(prev => prev.map(s => s.id === slotId ? { ...s, strength } : s));
+  };
+
   const handleReferenceRemove = (slotId: string) => {
     setReferenceImages(prev => prev.filter(s => s.id !== slotId));
   };
@@ -456,7 +461,7 @@ const App: React.FC = () => {
   const handleAddReference = () => {
     setReferenceImages(prev => {
       if (prev.length >= MAX_REFERENCES) return prev;
-      return [...prev, { id: Date.now().toString() + Math.random().toString(), image: null, file: null }];
+      return [...prev, { id: Date.now().toString() + Math.random().toString(), image: null, file: null, strength: refStrength }];
     });
   };
 
@@ -507,8 +512,16 @@ const App: React.FC = () => {
       setActivePromptCustomFields((fullPrompt as any).custom_fields || []);
       setActivePromptIsPublic(fullPrompt.is_public ?? true);
       setActivePromptPreviewUrl(fullPrompt.preview_image_url || null);
-      if (fullPrompt.reference_image_url) {
-        setReferenceImages([{ id: Date.now().toString() + Math.random().toString(), image: fullPrompt.reference_image_url, file: null }]);
+      setRefStrength(fullPrompt.reference_strength ?? 30);
+      if (fullPrompt.reference_images && fullPrompt.reference_images.length > 0) {
+        setReferenceImages(fullPrompt.reference_images.map((img: SavedPromptReferenceImage) => ({
+          id: Date.now().toString() + Math.random().toString(),
+          image: img.url,
+          file: null,
+          strength: img.strength,
+        })));
+      } else if (fullPrompt.reference_image_url) {
+        setReferenceImages([{ id: Date.now().toString() + Math.random().toString(), image: fullPrompt.reference_image_url, file: null, strength: fullPrompt.reference_strength ?? 30 }]);
       } else {
         setReferenceImages([]);
       }
@@ -602,6 +615,20 @@ const App: React.FC = () => {
       const previewUrl = compressedPreview ? await uploadImageToStorage(compressedPreview, 'webp') : null;
       const referenceUrl = compressedReference ? await uploadImageToStorage(compressedReference, 'jpg') : null;
 
+      const savedRefImages: SavedPromptReferenceImage[] = [];
+      for (const slot of referenceImages) {
+        if (!slot.image) continue;
+        const isDataUrl = slot.image.startsWith('data:');
+        let url: string;
+        if (isDataUrl) {
+          const compressed = await compressImageToJpegBase64(slot.image);
+          url = compressed ? await uploadImageToStorage(compressed, 'jpg') : slot.image;
+        } else {
+          url = slot.image;
+        }
+        savedRefImages.push({ url, strength: slot.strength });
+      }
+
       const promptData: Partial<SavedPrompt> = {
         name: activePromptName,
         prompt_text: prompt,
@@ -612,6 +639,8 @@ const App: React.FC = () => {
         is_public: activePromptIsPublic,
         preview_image_url: previewUrl || activePromptPreviewUrl,
         reference_image_url: referenceUrl,
+        reference_strength: refStrength,
+        reference_images: savedRefImages.length > 0 ? savedRefImages : null,
         user_id: !activePromptIsPublic ? currentUserId : null
       };
 
@@ -677,6 +706,20 @@ const App: React.FC = () => {
       const previewUrl = compressedPreview ? await uploadImageToStorage(compressedPreview, 'webp') : null;
       const referenceUrl = compressedReference ? await uploadImageToStorage(compressedReference, 'jpg') : null;
 
+      const savedRefImages: SavedPromptReferenceImage[] = [];
+      for (const slot of referenceImages) {
+        if (!slot.image) continue;
+        const isDataUrl = slot.image.startsWith('data:');
+        let url: string;
+        if (isDataUrl) {
+          const compressed = await compressImageToJpegBase64(slot.image);
+          url = compressed ? await uploadImageToStorage(compressed, 'jpg') : slot.image;
+        } else {
+          url = slot.image;
+        }
+        savedRefImages.push({ url, strength: slot.strength });
+      }
+
       const promptData: Partial<SavedPrompt> = {
         name: newName,
         prompt_text: prompt,
@@ -687,6 +730,8 @@ const App: React.FC = () => {
         is_public: activePromptIsPublic,
         preview_image_url: previewUrl,
         reference_image_url: referenceUrl,
+        reference_strength: refStrength,
+        reference_images: savedRefImages.length > 0 ? savedRefImages : null,
         user_id: !activePromptIsPublic ? currentUserId : null
       };
 
@@ -964,14 +1009,31 @@ const App: React.FC = () => {
                     </div>
                 )}
                 {referenceImages.map((slot, idx) => (
-                  <ImageUpload 
-                    key={slot.id}
-                    label={`Reference Image ${idx + 1}`}
-                    image={slot.image}
-                    onImageChange={(file, base64) => handleReferenceChange(slot.id, file, base64)}
-                    onError={handleUploadError}
-                    onRemove={() => handleReferenceRemove(slot.id)}
-                  />
+                  <div key={slot.id}>
+                    <ImageUpload 
+                      label={`Reference Image ${idx + 1}`}
+                      image={slot.image}
+                      onImageChange={(file, base64) => handleReferenceChange(slot.id, file, base64)}
+                      onError={handleUploadError}
+                      onRemove={() => handleReferenceRemove(slot.id)}
+                    />
+                    {slot.image && (
+                      <div className="mt-2 bg-app-bg/50 px-3 py-2 rounded-lg border border-app-border">
+                        <div className="flex justify-between mb-1">
+                          <label className="text-[10px] font-mono uppercase tracking-wider text-app-muted">Influence</label>
+                          <span className="text-[10px] font-mono font-bold text-app-accent">{slot.strength}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={slot.strength}
+                          onChange={(e) => handleReferenceStrengthChange(slot.id, parseInt(e.target.value))}
+                          className="w-full h-1.5 bg-app-border rounded-lg appearance-none cursor-pointer accent-app-accent"
+                        />
+                      </div>
+                    )}
+                  </div>
                 ))}
                 {referenceImages.length < MAX_REFERENCES && (
                   <button
