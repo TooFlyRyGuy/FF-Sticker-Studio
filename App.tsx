@@ -10,7 +10,7 @@ import PromptLibrary from './components/PromptLibrary';
 import PromptAssistant from './components/PromptAssistant';
 import PromptEditor from './components/PromptEditor';
 import Login from './components/Login';
-import { stripBase64Prefix, getMimeType, getMimeTypeFromBase64, compressImageBase64, fileToBase64, compositeOverlay } from './utils/imageUtils';
+import { stripBase64Prefix, getMimeType, getMimeTypeFromBase64, compressImageBase64, compressImageToJpegBase64, fileToBase64, compositeOverlay } from './utils/imageUtils';
 import { generateEditedImage, generatePromptMetadata } from './services/geminiService';
 
 const MAX_REFERENCES = 4;
@@ -20,7 +20,7 @@ interface ReferenceImageSlot {
   image: string | null;
   file: File | null;
 }
-import { savePrompt, initStorage, getFolders, getPromptById } from './services/storageService';
+import { savePrompt, initStorage, getFolders, getPromptById, uploadImageToStorage } from './services/storageService';
 import { supabase } from './services/supabaseClient';
 import { AspectRatio, ImageSize, ModelType, ProcessingState, NotificationItem, NotificationType, SavedPrompt, Folder, BatchJob, BatchLogEntry } from './types';
 import { PromptCustomField } from './components/PromptVariableBuilder';
@@ -597,7 +597,10 @@ const App: React.FC = () => {
       setStatus({ isLoading: true, error: null, progress: 'Compressing images...' });
       
       const compressedPreview = await compressImageBase64(previewImage);
-      const compressedReference = await compressImageBase64(referenceImages.length > 0 ? referenceImages[0].image : null);
+      const compressedReference = await compressImageToJpegBase64(referenceImages.length > 0 ? referenceImages[0].image : null);
+
+      const previewUrl = compressedPreview ? await uploadImageToStorage(compressedPreview, 'webp') : null;
+      const referenceUrl = compressedReference ? await uploadImageToStorage(compressedReference, 'jpg') : null;
 
       const promptData: Partial<SavedPrompt> = {
         name: activePromptName,
@@ -607,8 +610,8 @@ const App: React.FC = () => {
         custom_fields: activePromptCustomFields,
         category: activePromptCategory,
         is_public: activePromptIsPublic,
-        preview_image_url: compressedPreview,
-        reference_image_url: compressedReference,
+        preview_image_url: previewUrl || activePromptPreviewUrl,
+        reference_image_url: referenceUrl,
         user_id: !activePromptIsPublic ? currentUserId : null
       };
 
@@ -669,7 +672,10 @@ const App: React.FC = () => {
       setStatus({ isLoading: true, error: null, progress: 'Compressing images...' });
       
       const compressedPreview = await compressImageBase64(previewImage);
-      const compressedReference = await compressImageBase64(referenceImages.length > 0 ? referenceImages[0].image : null);
+      const compressedReference = await compressImageToJpegBase64(referenceImages.length > 0 ? referenceImages[0].image : null);
+
+      const previewUrl = compressedPreview ? await uploadImageToStorage(compressedPreview, 'webp') : null;
+      const referenceUrl = compressedReference ? await uploadImageToStorage(compressedReference, 'jpg') : null;
 
       const promptData: Partial<SavedPrompt> = {
         name: newName,
@@ -679,8 +685,8 @@ const App: React.FC = () => {
         custom_fields: activePromptCustomFields,
         category: activePromptCategory,
         is_public: activePromptIsPublic,
-        preview_image_url: compressedPreview,
-        reference_image_url: compressedReference,
+        preview_image_url: previewUrl,
+        reference_image_url: referenceUrl,
         user_id: !activePromptIsPublic ? currentUserId : null
       };
 

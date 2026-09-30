@@ -6,6 +6,41 @@ export const getStorageMode = () => 'supabase';
 export const setStorageMode = async (mode: 'supabase') => {};
 export const initStorage = async () => {};
 
+export const uploadImageToStorage = async (
+  base64DataUrl: string,
+  extension: 'webp' | 'jpg'
+): Promise<string | null> => {
+  if (!base64DataUrl) return null;
+
+  try {
+    const mimeType = extension === 'webp' ? 'image/webp' : 'image/jpeg';
+    const content = base64DataUrl.includes(',') ? base64DataUrl.split(',')[1] : base64DataUrl;
+    const byteCharacters = atob(content);
+    const byteArray = new Uint8Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteArray[i] = byteCharacters.charCodeAt(i);
+    }
+    const blob = new Blob([byteArray], { type: mimeType });
+
+    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${extension}`;
+
+    const { error } = await supabase.storage
+      .from('prompt-images')
+      .upload(fileName, blob, { contentType: mimeType, upsert: false });
+
+    if (error) throw error;
+
+    const { data: urlData } = supabase.storage
+      .from('prompt-images')
+      .getPublicUrl(fileName);
+
+    return urlData.publicUrl;
+  } catch (error) {
+    console.error('Error uploading image to storage:', error);
+    return null;
+  }
+};
+
 export const getPrompts = async (page: number = 0, limit: number = 24): Promise<{ prompts: SavedPrompt[], total: number }> => {
   const from = page * limit;
   const to = from + limit - 1;

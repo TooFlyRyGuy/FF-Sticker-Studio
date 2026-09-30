@@ -124,21 +124,42 @@ export const compressImageBase64 = async (base64String: string | null): Promise<
   try {
     const mimeType = getMimeTypeFromBase64(base64String);
     const blob = base64ToBlob(base64String, mimeType);
-    const file = new File([blob], "image.jpg", { type: mimeType });
-    
-    // We want a modest compression for library preview and reference images.
-    // Quality vs size trade-off.
+    const file = new File([blob], "image.webp", { type: mimeType });
+
     const options = {
-      maxSizeMB: 0.15, // Aim for <=150KB
+      maxSizeMB: 0.15,
       maxWidthOrHeight: 1024,
       useWebWorker: true,
       fileType: 'image/webp'
     };
-    
+
     const compressedFile = await imageCompression(file, options);
     return await fileToBase64(compressedFile);
   } catch (error) {
-    console.error("Compression failed", error);
-    return base64String; // fallback to original if compression fails
+    console.error("WebP compression failed", error);
+    return base64String;
+  }
+};
+
+export const compressImageToJpegBase64 = async (base64String: string | null): Promise<string | null> => {
+  if (!base64String) return base64String;
+  try {
+    const mimeType = getMimeTypeFromBase64(base64String);
+    const blob = base64ToBlob(base64String, mimeType);
+    const file = new File([blob], "image.jpg", { type: mimeType });
+
+    const options = {
+      maxSizeMB: 0.3,
+      maxWidthOrHeight: 1024,
+      useWebWorker: true,
+      fileType: 'image/jpeg',
+      initialQuality: 0.85
+    };
+
+    const compressedFile = await imageCompression(file, options);
+    return await fileToBase64(compressedFile);
+  } catch (error) {
+    console.error("JPEG compression failed", error);
+    return base64String;
   }
 };
