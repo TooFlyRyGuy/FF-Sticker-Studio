@@ -16,8 +16,8 @@ export enum ImageSize {
 
 export enum ModelType {
   FLASH = 'gemini-2.5-flash-image',
-  FLASH_3_1 = 'gemini-3.1-flash-image-preview',
-  PRO = 'gemini-3-pro-image-preview'
+  FLASH_3_1 = 'gemini-3.1-flash-image',
+  PRO = 'gemini-3-pro-image'
 }
 
 export interface ProcessingState {
