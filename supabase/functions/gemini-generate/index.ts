@@ -40,7 +40,32 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body = await req.json();
-    const { params } = body;
+    const { params, type } = body;
+
+    if (type === "metadata") {
+      const { prompt } = body;
+      if (!prompt || !prompt.trim()) {
+        return new Response(JSON.stringify({ error: "No prompt provided." }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const genAI = new GoogleGenAI({ apiKey });
+      const metaResponse = await genAI.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: `Generate metadata for this image generation prompt: "${prompt}".
+Return JSON with: name (short title), description (5-10 words max), category (one of: Portrait, Cinematic, Fantasy, Vintage, Nature, Abstract, Studio, Illustration, Other), tags (array of 3-5 keywords).
+Output ONLY valid JSON.`,
+        config: { responseMimeType: "application/json" },
+      });
+
+      const metaText = metaResponse.text || "";
+      return new Response(JSON.stringify({ text: metaText }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const {
       imageBase64,
       mimeType,

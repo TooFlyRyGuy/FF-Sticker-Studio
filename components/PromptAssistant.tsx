@@ -61,7 +61,7 @@ const PromptAssistant: React.FC<PromptAssistantProps> = ({ isOpen, onClose, curr
              </div>
              <div>
                 <h3 className="text-xs sm:text-sm font-mono uppercase tracking-wider font-bold text-white">Prompt Assistant</h3>
-                <p className="text-[9px] sm:text-[10px] font-mono uppercase tracking-widest text-app-muted">Powered by Gemini</p>
+                <p className="text-[9px] sm:text-[10px] font-mono uppercase tracking-widest text-app-muted">Powered by ChatGPT</p>
              </div>
           </div>
           <button onClick={onClose} className="text-app-muted hover:text-white transition-colors p-1">

@@ -5,3 +5,7 @@ entrypoint = "./functions/batch-process/index.ts"
 [functions.gemini-generate]
 verify_jwt = false
 entrypoint = "./functions/gemini-generate/index.ts"
+
+[functions.prompt-assistant]
+verify_jwt = false
+entrypoint = "./functions/prompt-assistant/index.ts"

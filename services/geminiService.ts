@@ -98,22 +98,29 @@ export const generateEditedImage = async (params: EditImageParams): Promise<stri
 
 export const generatePromptIdeas = async (currentPrompt: string, instruction: string): Promise<string[]> => {
   try {
-    const response = await fetch('/api/gemini/ideas', {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    const response = await fetch(`${supabaseUrl}/functions/v1/prompt-assistant`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${supabaseAnonKey}`,
+        'apikey': supabaseAnonKey,
+      },
       body: JSON.stringify({ currentPrompt, instruction }),
     });
 
-    if (!response.ok) throw new Error("Failed to fetch ideas from server");
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.error || `Request failed (${response.status})`);
+    }
 
     const data = await response.json();
     if (data.error) throw new Error(data.error);
 
     const parsed = JSON.parse(data.text);
-    if (Array.isArray(parsed)) {
-      return parsed.map(String);
-    }
-    return [];
+    const prompts = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.prompts) ? parsed.prompts : []);
+    return prompts.map(String);
   } catch (error: any) {
     console.error("Failed to generate ideas:", error);
     return [];
@@ -122,13 +129,22 @@ export const generatePromptIdeas = async (currentPrompt: string, instruction: st
 
 export const generatePromptMetadata = async (prompt: string): Promise<{name: string, description: string, tags: string[], category: string}> => {
   try {
-    const response = await fetch('/api/gemini/metadata', {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    const response = await fetch(`${supabaseUrl}/functions/v1/gemini-generate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt }),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${supabaseAnonKey}`,
+        'apikey': supabaseAnonKey,
+      },
+      body: JSON.stringify({ type: 'metadata', prompt }),
     });
 
-    if (!response.ok) throw new Error("Failed to fetch metadata from server");
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.error || `Request failed (${response.status})`);
+    }
 
     const data = await response.json();
     const parsed = JSON.parse(data.text);
