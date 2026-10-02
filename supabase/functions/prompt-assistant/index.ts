@@ -1,4 +1,5 @@
 import OpenAI from "npm:openai@7.15.0";
+import { GoogleGenAI } from "npm:@google/genai@1.30.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,7 +29,48 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const { currentPrompt, instruction } = await req.json();
+    const body = await req.json();
+    const { currentPrompt, instruction, type } = body;
+
+    if (type === "metadata") {
+      const { prompt } = body;
+      if (!prompt || !prompt.trim()) {
+        return new Response(JSON.stringify({ error: "No prompt provided." }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const openai = new OpenAI({ apiKey, baseURL: "https://api.openai.com/v1" });
+      try {
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            { role: "system", content: "You are a metadata generator for AI image prompts. Return JSON with: name (short title), description (5-10 words), category (one of: Portrait, Cinematic, Fantasy, Vintage, Nature, Abstract, Studio, Illustration, Other), tags (array of 3-5 keywords). Output ONLY valid JSON." },
+            { role: "user", content: `Generate metadata for this image generation prompt: "${prompt}"` },
+          ],
+          response_format: { type: "json_object" },
+        });
+
+        const metaText = completion.choices[0].message.content || "";
+        return new Response(JSON.stringify({ text: metaText }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (openaiError: any) {
+        const geminiKey = (Deno.env.get("GEMINI_API_KEY") || Deno.env.get("NEWGEMINI_API_KEY") || "").trim();
+        if (!geminiKey) throw openaiError;
+        const genAI = new GoogleGenAI({ apiKey: geminiKey });
+        const metaResponse = await genAI.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: `Generate metadata for this image generation prompt: "${prompt}".\nReturn JSON with: name (short title), description (5-10 words max), category (one of: Portrait, Cinematic, Fantasy, Vintage, Nature, Abstract, Studio, Illustration, Other), tags (array of 3-5 keywords).\nOutput ONLY valid JSON.`,
+          config: { responseMimeType: "application/json" },
+        });
+        const metaText = metaResponse.text || "";
+        return new Response(JSON.stringify({ text: metaText }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
 
     if (!currentPrompt && !instruction) {
       return new Response(JSON.stringify({ error: "No prompt or instruction provided." }), {
