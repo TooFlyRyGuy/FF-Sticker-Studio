@@ -6,6 +6,8 @@ interface PromptEditorProps {
   onPromptTextChange: (text: string) => void;
   customFields?: PromptCustomField[];
   onCustomFieldsChange: (fields: PromptCustomField[]) => void;
+  isCustomizationEnabled?: boolean;
+  onCustomizationToggle?: (enabled: boolean) => void;
   labelClassName?: string;
   textareaClassName?: string;
 }
@@ -15,23 +17,31 @@ const PromptEditor: React.FC<PromptEditorProps> = ({
   onPromptTextChange,
   customFields = [],
   onCustomFieldsChange,
+  isCustomizationEnabled,
+  onCustomizationToggle,
   labelClassName = "block text-sm font-bold text-slate-900 mb-2",
   textareaClassName = "w-full px-4 py-3 border-2 border-slate-300 rounded-lg focus:outline-none focus:border-green-700 min-h-[120px] font-mono text-sm"
 }) => {
-  const [allowCustomization, setAllowCustomization] = useState(customFields.length > 0);
+  const [internalAllow, setInternalAllow] = useState(customFields.length > 0);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  const allowCustomization = isCustomizationEnabled !== undefined ? isCustomizationEnabled : internalAllow;
+
   useEffect(() => {
-    setAllowCustomization(customFields.length > 0);
-  }, [customFields.length]);
+    if (isCustomizationEnabled === undefined) {
+      setInternalAllow(customFields.length > 0);
+    }
+  }, [customFields.length, isCustomizationEnabled]);
 
   const toggleCustomization = () => {
-    if (allowCustomization) {
-      setAllowCustomization(false);
-    } else {
-      setIsModalOpen(true);
-      setAllowCustomization(true);
+    const newVal = !allowCustomization;
+    if (isCustomizationEnabled === undefined) {
+      setInternalAllow(newVal);
     }
+    if (newVal) {
+      setIsModalOpen(true);
+    }
+    onCustomizationToggle?.(newVal);
   };
 
   return (

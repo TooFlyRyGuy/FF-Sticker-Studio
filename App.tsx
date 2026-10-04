@@ -25,6 +25,7 @@ import { savePrompt, initStorage, getFolders, getPromptById, uploadImageToStorag
 import { supabase } from './services/supabaseClient';
 import { AspectRatio, ImageSize, ModelType, ProcessingState, NotificationItem, NotificationType, SavedPrompt, SavedPromptReferenceImage, Folder, BatchJob, BatchLogEntry } from './types';
 import { PromptCustomField } from './components/PromptVariableBuilder';
+import GuestCustomizationModal from './components/GuestCustomizationModal';
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
@@ -101,6 +102,8 @@ const App: React.FC = () => {
   const [activePromptDescription, setActivePromptDescription] = useState<string>("");
   const [activePromptTags, setActivePromptTags] = useState<string>("");
   const [activePromptCustomFields, setActivePromptCustomFields] = useState<PromptCustomField[]>([]);
+  const [isGuestCustomizationEnabled, setIsGuestCustomizationEnabled] = useState<boolean>(false);
+  const [isGuestModalOpen, setIsGuestModalOpen] = useState<boolean>(false);
   const [activePromptIsPublic, setActivePromptIsPublic] = useState<boolean>(true);
   const [activePromptPreviewUrl, setActivePromptPreviewUrl] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<{name?: boolean, description?: boolean, category?: boolean}>({});
@@ -756,8 +759,22 @@ const App: React.FC = () => {
     }
   };
 
-  const handleGenerate = async () => {
-    if (!prompt) {
+  const handleGenerateClick = () => {
+    if (isGuestCustomizationEnabled && activePromptCustomFields.length > 0) {
+      setIsGuestModalOpen(true);
+    } else {
+      handleGenerate();
+    }
+  };
+
+  const handleGuestGenerate = (filledPrompt: string) => {
+    setIsGuestModalOpen(false);
+    handleGenerate(filledPrompt);
+  };
+
+  const handleGenerate = async (overridePrompt?: string) => {
+    const effectivePrompt = overridePrompt ?? prompt;
+    if (!effectivePrompt) {
       addNotification('error', "Please enter a prompt to generate an image.");
       return;
     }
@@ -775,7 +792,7 @@ const App: React.FC = () => {
         mimeType: mimeType,
         referenceImages: refImagesForApi.length > 0 ? refImagesForApi : undefined,
         refStrength: refImagesForApi.length > 0 ? refStrength : undefined,
-        prompt,
+        prompt: effectivePrompt,
         aspectRatio,
         imageSize,
         model: selectedModel
@@ -794,7 +811,7 @@ const App: React.FC = () => {
       
       if (!activePromptId && (!activePromptName || !activePromptDescription)) {
         setStatus({ isLoading: true, error: null, progress: 'Generating suggested metadata...' });
-        const metadata = await generatePromptMetadata(prompt);
+        const metadata = await generatePromptMetadata(effectivePrompt);
         if (metadata.name && !activePromptName) setActivePromptName(metadata.name);
         if (metadata.description && !activePromptDescription) setActivePromptDescription(metadata.description);
         if (metadata.tags.length > 0 && !activePromptTags) setActivePromptTags(metadata.tags.join(', '));
@@ -861,6 +878,14 @@ const App: React.FC = () => {
         onApplyPrompt={handleAssistantApply}
       />
 
+      <GuestCustomizationModal
+        isOpen={isGuestModalOpen}
+        fields={activePromptCustomFields}
+        promptTemplate={prompt}
+        onGenerate={handleGuestGenerate}
+        onCancel={() => setIsGuestModalOpen(false)}
+      />
+
       <main className="w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 lg:gap-8 w-full">
           {/* Controls Column */}
@@ -908,6 +933,8 @@ const App: React.FC = () => {
                   onPromptTextChange={setPrompt}
                   customFields={activePromptCustomFields}
                   onCustomFieldsChange={setActivePromptCustomFields}
+                  isCustomizationEnabled={isGuestCustomizationEnabled}
+                  onCustomizationToggle={setIsGuestCustomizationEnabled}
                 />
               </div>
             </div>
@@ -1142,7 +1169,7 @@ const App: React.FC = () => {
           {/* Results Column */}
           <div className="space-y-4 sm:space-y-6 w-full min-w-0">
             <Button 
-              onClick={handleGenerate} 
+              onClick={handleGenerateClick} 
               isLoading={status.isLoading}
               disabled={!prompt}
               className="w-full bg-app-accent hover:bg-app-accentHover text-white font-semibold tracking-wide uppercase text-base sm:text-lg rounded-xl py-3.5 sm:py-4 shadow-xl shadow-app-accent/20 transition-all active:scale-[0.98]"
