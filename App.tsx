@@ -102,6 +102,7 @@ const App: React.FC = () => {
   const [activePromptDescription, setActivePromptDescription] = useState<string>("");
   const [activePromptTags, setActivePromptTags] = useState<string>("");
   const [activePromptCustomFields, setActivePromptCustomFields] = useState<PromptCustomField[]>([]);
+  const [activePromptModel, setActivePromptModel] = useState<string | null>(null);
   const [isGuestCustomizationEnabled, setIsGuestCustomizationEnabled] = useState<boolean>(false);
   const [isGuestModalOpen, setIsGuestModalOpen] = useState<boolean>(false);
   const [activePromptIsPublic, setActivePromptIsPublic] = useState<boolean>(true);
@@ -513,6 +514,11 @@ const App: React.FC = () => {
       setActivePromptDescription(fullPrompt.description || "");
       setActivePromptTags(Array.isArray(fullPrompt.tags) ? fullPrompt.tags.join(', ') : (typeof fullPrompt.tags === 'string' ? fullPrompt.tags : ""));
       setActivePromptCustomFields((fullPrompt as any).custom_fields || []);
+      const loadedModel = (fullPrompt as any).gemini_model ?? null;
+      setActivePromptModel(loadedModel);
+      if (loadedModel) {
+        setSelectedModel(loadedModel as ModelType);
+      }
       setActivePromptIsPublic(fullPrompt.is_public ?? true);
       setActivePromptPreviewUrl(fullPrompt.preview_image_url || null);
       setRefStrength(fullPrompt.reference_strength ?? 30);
@@ -637,7 +643,8 @@ const App: React.FC = () => {
         prompt_text: prompt,
         description: activePromptDescription,
         tags: activePromptTags.split(',').map(tag => tag.trim()).filter(t => t),
-        custom_fields: activePromptCustomFields,
+        custom_fields: activePromptCustomFields as any,
+        gemini_model: activePromptModel ?? null,
         category: activePromptCategory,
         is_public: activePromptIsPublic,
         preview_image_url: previewUrl || activePromptPreviewUrl,
@@ -728,7 +735,8 @@ const App: React.FC = () => {
         prompt_text: prompt,
         description: activePromptDescription,
         tags: activePromptTags.split(',').map(tag => tag.trim()).filter(t => t),
-        custom_fields: activePromptCustomFields,
+        custom_fields: activePromptCustomFields as any,
+        gemini_model: activePromptModel ?? null,
         category: activePromptCategory,
         is_public: activePromptIsPublic,
         preview_image_url: previewUrl,
@@ -1113,6 +1121,7 @@ const App: React.FC = () => {
                     className="w-full bg-app-bg border border-app-border rounded-lg px-3 sm:px-4 py-2 sm:py-2.5 text-white focus:ring-1 focus:ring-app-accent focus:border-app-accent outline-none transition-all text-xs sm:text-sm"
                   >
                     <option value={ModelType.FLASH}>Nano Banana 2.5 Flash (Fast & Free)</option>
+                    <option value={ModelType.NANO_BANANA_2_1}>Nano Banana 2.1 Flash (Latest)</option>
                     <option value={ModelType.FLASH_3_1}>Gemini 3.1 Flash (High Quality)</option>
                     <option value={ModelType.PRO}>Nano Banana 3.0 Pro (High Fidelity)</option>
                   </select>
@@ -1293,6 +1302,20 @@ const App: React.FC = () => {
                       placeholder="e.g., neon, futuristic"
                       className="w-full bg-app-bg border border-app-border rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent outline-none font-mono text-xs sm:text-sm"
                     />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-mono uppercase tracking-wider text-app-muted mb-1">Prompt Model</label>
+                    <select
+                      value={activePromptModel ?? ""}
+                      onChange={(e) => setActivePromptModel(e.target.value || null)}
+                      className="w-full bg-app-bg border border-app-border rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent focus:border-app-accent outline-none font-mono text-xs sm:text-sm transition-colors"
+                    >
+                      <option value="">Inherit (event/account level)</option>
+                      <option value={ModelType.FLASH}>Nano Banana 2.5 Flash</option>
+                      <option value={ModelType.NANO_BANANA_2_1}>Nano Banana 2.1 Flash</option>
+                      <option value={ModelType.FLASH_3_1}>Gemini 3.1 Flash</option>
+                      <option value={ModelType.PRO}>Nano Banana 3.0 Pro</option>
+                    </select>
                   </div>
                   <div>
                     <label className="block text-xs font-mono uppercase tracking-wider text-app-muted mb-1">Visibility</label>

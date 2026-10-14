@@ -126,7 +126,7 @@ USER PROMPT: ${prompt}`;
     }
     parts.push({ text: finalPrompt });
 
-    const isHighFidelity = model.includes("pro") || model.includes("3.1-flash-image");
+    const isHighFidelity = model.includes("pro") || model.includes("3.1-flash-image") || model.includes("2.1-flash-image");
     const configData: any = { imageConfig: { aspectRatio } };
     if (isHighFidelity && imageSize) {
       configData.imageConfig.imageSize = imageSize;

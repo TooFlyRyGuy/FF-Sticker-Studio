@@ -16,6 +16,7 @@ export enum ImageSize {
 
 export enum ModelType {
   FLASH = 'gemini-2.5-flash-image',
+  NANO_BANANA_2_1 = 'gemini-2.1-flash-image',
   FLASH_3_1 = 'gemini-3.1-flash-image',
   PRO = 'gemini-3-pro-image'
 }
@@ -92,5 +93,7 @@ export interface SavedPrompt {
   tags?: string[];
   is_public?: boolean;
   user_id?: string | null;
+  gemini_model?: string | null;
+  custom_fields?: any[] | null;
 }
 
