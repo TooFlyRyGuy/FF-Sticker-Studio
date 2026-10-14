@@ -1120,10 +1120,10 @@ const App: React.FC = () => {
                     onChange={(e) => setSelectedModel(e.target.value as ModelType)}
                     className="w-full bg-app-bg border border-app-border rounded-lg px-3 sm:px-4 py-2 sm:py-2.5 text-white focus:ring-1 focus:ring-app-accent focus:border-app-accent outline-none transition-all text-xs sm:text-sm"
                   >
-                    <option value={ModelType.FLASH}>Nano Banana 2.5 Flash (Fast & Free)</option>
-                    <option value={ModelType.NANO_BANANA_2_1}>Nano Banana 2.1 Flash (Latest)</option>
-                    <option value={ModelType.FLASH_3_1}>Gemini 3.1 Flash (High Quality)</option>
-                    <option value={ModelType.PRO}>Nano Banana 3.0 Pro (High Fidelity)</option>
+                    <option value={ModelType.FLASH}>Nano Banana (Fast & Free)</option>
+                    <option value={ModelType.FLASH_3_1}>Nano Banana 2 (High Quality)</option>
+                    <option value={ModelType.NANO_BANANA_2_1}>Nano Banana 2.1 (Latest)</option>
+                    <option value={ModelType.PRO}>Nano Banana Pro (High Fidelity)</option>
                   </select>
                 </div>
                 <div>
@@ -1311,10 +1311,10 @@ const App: React.FC = () => {
                       className="w-full bg-app-bg border border-app-border rounded-lg px-3 py-2 text-white focus:ring-1 focus:ring-app-accent focus:border-app-accent outline-none font-mono text-xs sm:text-sm transition-colors"
                     >
                       <option value="">Inherit (event/account level)</option>
-                      <option value={ModelType.FLASH}>Nano Banana 2.5 Flash</option>
-                      <option value={ModelType.NANO_BANANA_2_1}>Nano Banana 2.1 Flash</option>
-                      <option value={ModelType.FLASH_3_1}>Gemini 3.1 Flash</option>
-                      <option value={ModelType.PRO}>Nano Banana 3.0 Pro</option>
+                      <option value={ModelType.FLASH}>Nano Banana</option>
+                      <option value={ModelType.FLASH_3_1}>Nano Banana 2</option>
+                      <option value={ModelType.NANO_BANANA_2_1}>Nano Banana 2.1</option>
+                      <option value={ModelType.PRO}>Nano Banana Pro</option>
                     </select>
                   </div>
                   <div>
