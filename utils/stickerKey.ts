@@ -11,6 +11,29 @@
 
 export const STICKER_KEY_HEX = '#00FF00';
 
+export type PromptOutputMode = 'photo' | 'sticker' | 'video';
+
+/**
+ * prompts.mode on the shared table. Missing, blank, and unknown values are
+ * photo, which is also the column default. Only an explicit sticker label keys.
+ */
+export function normalizePromptMode(mode: string | null | undefined): PromptOutputMode {
+  const value = (mode ?? '').trim().toLowerCase();
+  if (value === 'sticker' || value === 'video') return value;
+  return 'photo';
+}
+
+export function isStickerPromptMode(mode: string | null | undefined): boolean {
+  return normalizePromptMode(mode) === 'sticker';
+}
+
+export function promptModeLabel(mode: string | null | undefined): 'Photo' | 'Sticker' | 'Video' {
+  const normalized = normalizePromptMode(mode);
+  if (normalized === 'sticker') return 'Sticker';
+  if (normalized === 'video') return 'Video';
+  return 'Photo';
+}
+
 /** Appended after the author's prompt. The theme stays first and unmodified. */
 export const STICKER_KEY_SCREEN_INSTRUCTION =
   'STICKER KEY SCREEN: one die-cut vinyl sticker of the subject, cropped close, thin white outline. The entire background must be flat pure green #00FF00, exactly RGB(0,255,0). No gradient, shadow, scene, frame, or photo overlay. Do not use a transparent background. Do not draw a checkerboard, grid, or grey-white squares. The green is a chroma-key screen and will be removed.';

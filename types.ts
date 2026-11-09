@@ -95,5 +95,7 @@ export interface SavedPrompt {
   user_id?: string | null;
   gemini_model?: string | null;
   custom_fields?: any[] | null;
+  /** Shared prompts.mode: 'photo' | 'sticker' | 'video'. Absent means photo. */
+  mode?: string | null;
 }
 

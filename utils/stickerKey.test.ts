@@ -5,6 +5,7 @@ import { buildGeminiGenerateParams } from '../services/geminiService.ts';
 import {
   STICKER_KEY_SCREEN_INSTRUCTION,
   appendStickerKeyInstruction,
+  isStickerPromptMode,
   keyChromaGreen,
   stickerAlpha,
   stickerDownloadName,
@@ -90,6 +91,47 @@ test('themed prompt, references, and settings reach the gemini-generate payload 
 
   const plain = buildGeminiGenerateParams({ ...fields, stickerMode: false });
   assert.deepEqual({ ...payload.params, prompt: AEROBICS }, plain);
+});
+
+test('a sticker label keys with the prompt intact; photo, video, and unlabeled do not', () => {
+  const references = [
+    { base64: 'leotard-ref', mimeType: 'image/jpeg' },
+    { base64: 'vhs-grade-ref', mimeType: 'image/png' },
+  ];
+  const base = {
+    imageBase64: 'guest-photo',
+    mimeType: 'image/jpeg',
+    referenceImages: references,
+    refStrength: 65,
+    prompt: AEROBICS,
+    aspectRatio: '2:3',
+    imageSize: '2K',
+    model: 'gemini-3-pro-image',
+  };
+
+  assert.equal(isStickerPromptMode('sticker'), true);
+  assert.equal(isStickerPromptMode('Sticker'), true);
+  assert.equal(isStickerPromptMode('photo'), false);
+  assert.equal(isStickerPromptMode('video'), false);
+  assert.equal(isStickerPromptMode(null), false);
+  assert.equal(isStickerPromptMode(undefined), false);
+  assert.equal(isStickerPromptMode(''), false);
+
+  const sticker = buildGeminiGenerateParams({ ...base, stickerMode: isStickerPromptMode('sticker') });
+  assert.equal(sticker.prompt.slice(0, AEROBICS.length), AEROBICS);
+  assert.equal(sticker.prompt, appendStickerKeyInstruction(AEROBICS));
+  assert.deepEqual(sticker.referenceImages, references);
+  assert.equal(sticker.refStrength, 65);
+  assert.equal(sticker.aspectRatio, '2:3');
+  assert.equal(sticker.imageSize, '2K');
+  assert.equal(sticker.model, 'gemini-3-pro-image');
+
+  for (const label of ['photo', 'video', null, undefined, ''] as const) {
+    const params = buildGeminiGenerateParams({ ...base, stickerMode: isStickerPromptMode(label) });
+    assert.equal(params.prompt, AEROBICS, `label ${String(label)} was rewritten`);
+    assert.deepEqual(params.referenceImages, references);
+    assert.equal(params.refStrength, 65);
+  }
 });
 
 test('key instruction does not replace a prompt that mentions a transparent background', () => {
@@ -220,15 +262,22 @@ test('the app sends the author prompt and keys before overlay', () => {
   const fetchBody = gemini.slice(gemini.indexOf('JSON.stringify'));
   assert.equal(fetchBody.includes('stickerMode'), false);
 
+  const storage = readFileSync(new URL('../services/storageService.ts', import.meta.url), 'utf8');
+
   assert.match(app, /prompt: effectivePrompt/);
   assert.match(app, /referenceImages: refImagesForApi\.length > 0 \? refImagesForApi : undefined/);
   assert.match(app, /refStrength: refImagesForApi\.length > 0 \? refStrength : undefined/);
-  assert.match(app, /stickerMode: isStickerMode/);
+  assert.match(app, /const stickerRender = isStickerPromptMode\(loadedPromptMode\)/);
+  assert.match(app, /stickerMode: stickerRender/);
+  assert.match(app, /setLoadedPromptMode\(typeof fullPrompt\.mode === 'string' \? fullPrompt\.mode : null\)/);
+  assert.equal(app.includes('setIsStickerMode'), false);
+  assert.equal(app.includes('Sticker: ON'), false);
+  assert.match(storage, /user_id, mode/);
 
   const keyAt = app.indexOf('keyOutStickerBackground(resultImage)');
   const overlayAt = app.indexOf('compositeOverlay(resultImage, overlayImage)');
   assert.ok(keyAt > 0 && overlayAt > keyAt, 'keying runs before overlay compositing');
-  assert.match(app, /if \(isStickerMode\) \{[\s\S]*?keyOutStickerBackground\(resultImage\)[\s\S]*?\} else if \(overlayImage\)/);
+  assert.match(app, /if \(stickerRender\) \{[\s\S]*?keyOutStickerBackground\(resultImage\)[\s\S]*?\} else if \(overlayImage\)/);
   assert.match(app, /uploadImageToStorage\(generatedImage, 'png'\)/);
   assert.match(app, /stickerDownloadName\(/);
   assert.match(app, /base64ToBlob\(generatedImage, 'image\/png'\)/);

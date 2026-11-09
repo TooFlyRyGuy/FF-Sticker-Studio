@@ -12,7 +12,7 @@ import PromptEditor from './components/PromptEditor';
 import Login from './components/Login';
 import { stripBase64Prefix, getMimeType, getMimeTypeFromBase64, compressImageBase64, compressImageToJpegBase64, fileToBase64, compositeOverlay, keyOutStickerBackground, base64ToBlob } from './utils/imageUtils';
 import { generateEditedImage, generatePromptMetadata } from './services/geminiService';
-import { stickerDownloadName } from './utils/stickerKey';
+import { isStickerPromptMode, promptModeLabel, stickerDownloadName } from './utils/stickerKey';
 
 const MAX_REFERENCES = 4;
 
@@ -83,7 +83,7 @@ const App: React.FC = () => {
   const [imageSize, setImageSize] = useState<ImageSize>(ImageSize.ONE_K);
   const [selectedModel, setSelectedModel] = useState<ModelType>(ModelType.FLASH_3_1);
   const [isBatchMode, setIsBatchMode] = useState<boolean>(false);
-  const [isStickerMode, setIsStickerMode] = useState<boolean>(false);
+  const [loadedPromptMode, setLoadedPromptMode] = useState<string | null>(null);
   const [stickerResult, setStickerResult] = useState<boolean>(false);
   const [batchFiles, setBatchFiles] = useState<File[]>([]);
   const [batchJobId, setBatchJobId] = useState<string | null>(null);
@@ -540,6 +540,7 @@ const App: React.FC = () => {
       setOverlayImage(null);
       setOverlayFile(null);
       setShowOverlaySlot(false);
+      setLoadedPromptMode(typeof fullPrompt.mode === 'string' ? fullPrompt.mode : null);
       setGeneratedImage(null); // Clear previously generated image when exploring newly loaded prompts
       setStickerResult(false);
       setIsLibraryOpen(false);
@@ -563,6 +564,7 @@ const App: React.FC = () => {
       setIsNewCategory(true);
       setActivePromptTags("");
       setActivePromptId(null);
+      setLoadedPromptMode(null);
       setGeneratedImage(null);
       setStickerResult(false);
       setActivePromptPreviewUrl(null);
@@ -669,14 +671,16 @@ const App: React.FC = () => {
       };
 
       if (activePromptId) {
-        await savePrompt({
+        const saved = await savePrompt({
           id: activePromptId,
           ...promptData
         });
+        if (typeof saved.mode === 'string') setLoadedPromptMode(saved.mode);
         addNotification('success', `Updated "${activePromptName}"`);
       } else {
         const newPrompt = await savePrompt(promptData);
         setActivePromptId(newPrompt.id);
+        setLoadedPromptMode(typeof newPrompt.mode === 'string' ? newPrompt.mode : null);
         addNotification('success', `Saved "${activePromptName}"`);
       }
       
@@ -771,6 +775,7 @@ const App: React.FC = () => {
 
       const newPrompt = await savePrompt(promptData);
       setActivePromptId(newPrompt.id);
+      setLoadedPromptMode(typeof newPrompt.mode === 'string' ? newPrompt.mode : null);
       addNotification('success', `Saved "${newName}"`);
       
       // Update categories if new
@@ -817,6 +822,7 @@ const App: React.FC = () => {
       const mimeType = sourceFile ? getMimeType(sourceFile) : (sourceImage ? getMimeTypeFromBase64(sourceImage) : undefined);
 
       const refImagesForApi = getReferenceImagesForApi();
+      const stickerRender = isStickerPromptMode(loadedPromptMode);
 
       const resultImage = await generateEditedImage({
         imageBase64: rawBase64,
@@ -827,11 +833,11 @@ const App: React.FC = () => {
         aspectRatio,
         imageSize,
         model: selectedModel,
-        stickerMode: isStickerMode
+        stickerMode: stickerRender
       });
 
       let finalImage = resultImage;
-      if (isStickerMode) {
+      if (stickerRender) {
         finalImage = await keyOutStickerBackground(resultImage);
       } else if (overlayImage) {
         try {
@@ -842,7 +848,7 @@ const App: React.FC = () => {
       }
 
       setGeneratedImage(finalImage);
-      setStickerResult(isStickerMode);
+      setStickerResult(stickerRender);
       
       if (!activePromptId && (!activePromptName || !activePromptDescription)) {
         setStatus({ isLoading: true, error: null, progress: 'Generating suggested metadata...' });
@@ -975,9 +981,20 @@ const App: React.FC = () => {
               
               <div className="w-full">
                 {activePromptId && (
-                  <div className="mb-2 text-[10px] text-app-accent bg-app-accent/10 px-2 py-0.5 rounded border border-app-accent/20 inline-block truncate max-w-full">
-                    Editing: {activePromptName}
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <div className="text-[10px] text-app-accent bg-app-accent/10 px-2 py-0.5 rounded border border-app-accent/20 inline-block truncate max-w-full">
+                      Editing: {activePromptName}
+                    </div>
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-white/90 bg-app-bg px-2 py-0.5 rounded border border-app-border">
+                      {promptModeLabel(loadedPromptMode)}
+                    </span>
                   </div>
+                )}
+                {isStickerPromptMode(loadedPromptMode) && (
+                  <p className="mb-2 text-[11px] font-mono text-app-muted leading-relaxed">
+                    This prompt is labeled Sticker. The theme is sent as written, then the green screen is removed and the result is a PNG. Overlay is skipped.
+                    {isBatchMode ? ' Batch still sends the prompt unchanged.' : ''}
+                  </p>
                 )}
                 <PromptEditor
                   promptText={prompt}
@@ -997,30 +1014,13 @@ const App: React.FC = () => {
                     <span className="bg-app-bg w-6 h-6 sm:w-7 sm:h-7 rounded flex items-center justify-center text-xs font-mono text-app-accent border border-app-border flex-shrink-0">02</span>
                     Upload Images
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    aria-pressed={isStickerMode}
-                    onClick={() => setIsStickerMode(!isStickerMode)}
-                    className={`px-2 py-1 text-[10px] font-mono uppercase rounded ${isStickerMode ? 'bg-app-accent text-white' : 'bg-app-surface text-app-muted border border-app-border'}`}
-                  >
-                    {isStickerMode ? 'Sticker: ON' : 'Sticker: OFF'}
-                  </button>
-                  <button
-                    type="button"
+                <button
                     onClick={() => setIsBatchMode(!isBatchMode)}
                     className={`px-2 py-1 text-[10px] font-mono uppercase rounded ${isBatchMode ? 'bg-app-accent text-white' : 'bg-app-surface text-app-muted border border-app-border'}`}
-                  >
+                >
                     {isBatchMode ? 'Batch: ON' : 'Batch: OFF'}
-                  </button>
-                </div>
+                </button>
               </h2>
-              {isStickerMode && (
-                <p className="text-[11px] font-mono text-app-muted mb-3 leading-relaxed">
-                  Your prompt, references, and settings are sent as written. A flat green screen instruction is added after the theme, then removed here. Overlay is skipped. The result is a transparent PNG.
-                  {isBatchMode ? ' Batch still sends the prompt unchanged and does not cut out the green.' : ''}
-                </p>
-              )}
               <div className="space-y-4 w-full">
                 <ImageUpload 
                   label={isBatchMode ? "Select Folder / Images" : "Source Image"} 
