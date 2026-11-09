@@ -49,8 +49,10 @@ const LazyPreviewImage: React.FC<{ promptId: string; hasPreview: boolean }> = ({
     return () => observer.disconnect();
   }, []);
 
+  const previewIsPng = !!imageUrl && /\.png($|\?)/i.test(imageUrl);
+
   return (
-    <div ref={containerRef} className="relative w-full h-full bg-app-bg overflow-hidden">
+    <div ref={containerRef} className={`relative w-full h-full overflow-hidden ${previewIsPng ? 'sticker-checkerboard' : 'bg-app-bg'}`}>
       {imageUrl ? (
         <img
           src={imageUrl}

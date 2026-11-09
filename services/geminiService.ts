@@ -1,4 +1,5 @@
 import { AspectRatio, ImageSize, ModelType } from "../types";
+import { buildGeminiGenerateParams } from "../utils/stickerKey";
 
 interface RefImageData {
   base64: string;
@@ -14,7 +15,10 @@ interface EditImageParams {
   aspectRatio: AspectRatio;
   imageSize: ImageSize;
   model: ModelType;
+  stickerMode?: boolean;
 }
+
+export { buildGeminiGenerateParams };
 
 const ensureBase64 = async (data: string, defaultMime: string): Promise<{ data: string; mime: string }> => {
   if (data.startsWith('http://') || data.startsWith('https://')) {
@@ -54,7 +58,7 @@ const getAuthHeaders = (): Record<string, string> => {
 };
 
 export const generateEditedImage = async (params: EditImageParams): Promise<string> => {
-  let { imageBase64, mimeType, referenceImages, refStrength, prompt, aspectRatio, imageSize, model } = params;
+  let { imageBase64, mimeType, referenceImages, refStrength, prompt, aspectRatio, imageSize, model, stickerMode } = params;
 
   if (imageBase64) {
     const result = await ensureBase64(imageBase64, mimeType || 'image/png');
@@ -70,21 +74,22 @@ export const generateEditedImage = async (params: EditImageParams): Promise<stri
     }
   }
 
+  const requestParams = buildGeminiGenerateParams({
+    imageBase64,
+    mimeType,
+    referenceImages: processedRefs.length > 0 ? processedRefs : undefined,
+    refStrength,
+    prompt,
+    aspectRatio,
+    imageSize,
+    model,
+    stickerMode,
+  });
+
   const response = await fetch(getEdgeFunctionUrl(), {
     method: 'POST',
     headers: getAuthHeaders(),
-    body: JSON.stringify({
-      params: {
-        imageBase64,
-        mimeType,
-        referenceImages: processedRefs.length > 0 ? processedRefs : undefined,
-        refStrength,
-        prompt,
-        aspectRatio,
-        imageSize,
-        model
-      }
-    }),
+    body: JSON.stringify({ params: requestParams }),
   });
 
   if (!response.ok) {

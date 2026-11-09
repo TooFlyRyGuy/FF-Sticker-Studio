@@ -10,8 +10,9 @@ import PromptLibrary from './components/PromptLibrary';
 import PromptAssistant from './components/PromptAssistant';
 import PromptEditor from './components/PromptEditor';
 import Login from './components/Login';
-import { stripBase64Prefix, getMimeType, getMimeTypeFromBase64, compressImageBase64, compressImageToJpegBase64, fileToBase64, compositeOverlay } from './utils/imageUtils';
+import { stripBase64Prefix, getMimeType, getMimeTypeFromBase64, compressImageBase64, compressImageToJpegBase64, fileToBase64, compositeOverlay, keyOutStickerBackground, base64ToBlob } from './utils/imageUtils';
 import { generateEditedImage, generatePromptMetadata } from './services/geminiService';
+import { stickerDownloadName } from './utils/stickerKey';
 
 const MAX_REFERENCES = 4;
 
@@ -82,6 +83,8 @@ const App: React.FC = () => {
   const [imageSize, setImageSize] = useState<ImageSize>(ImageSize.ONE_K);
   const [selectedModel, setSelectedModel] = useState<ModelType>(ModelType.FLASH_3_1);
   const [isBatchMode, setIsBatchMode] = useState<boolean>(false);
+  const [isStickerMode, setIsStickerMode] = useState<boolean>(false);
+  const [stickerResult, setStickerResult] = useState<boolean>(false);
   const [batchFiles, setBatchFiles] = useState<File[]>([]);
   const [batchJobId, setBatchJobId] = useState<string | null>(null);
   const [batchProgress, setBatchProgress] = useState<{ processed: number; total: number } | null>(null);
@@ -538,6 +541,7 @@ const App: React.FC = () => {
       setOverlayFile(null);
       setShowOverlaySlot(false);
       setGeneratedImage(null); // Clear previously generated image when exploring newly loaded prompts
+      setStickerResult(false);
       setIsLibraryOpen(false);
       addNotification('success', `Loaded "${fullPrompt.name}"`);
     } catch (e) {
@@ -560,6 +564,7 @@ const App: React.FC = () => {
       setActivePromptTags("");
       setActivePromptId(null);
       setGeneratedImage(null);
+      setStickerResult(false);
       setActivePromptPreviewUrl(null);
       addNotification("success", "Cleared prompt and metadata.");
     } else {
@@ -618,10 +623,19 @@ const App: React.FC = () => {
     try {
       setStatus({ isLoading: true, error: null, progress: 'Compressing images...' });
       
-      const compressedPreview = await compressImageBase64(previewImage);
       const compressedReference = await compressImageToJpegBase64(referenceImages.length > 0 ? referenceImages[0].image : null);
 
-      const previewUrl = compressedPreview ? await uploadImageToStorage(compressedPreview, 'webp') : null;
+      const stickerPreviewPng = stickerResult && !!generatedImage && generatedImage.startsWith('data:image/png');
+      let previewUrl: string | null;
+      if (stickerPreviewPng) {
+        previewUrl = await uploadImageToStorage(generatedImage, 'png');
+        if (!previewUrl) {
+          addNotification('error', 'Sticker preview could not be uploaded as PNG. The prompt will save without a new preview.');
+        }
+      } else {
+        const compressedPreview = await compressImageBase64(previewImage);
+        previewUrl = compressedPreview ? await uploadImageToStorage(compressedPreview, 'webp') : null;
+      }
       const referenceUrl = compressedReference ? await uploadImageToStorage(compressedReference, 'jpg') : null;
 
       const savedRefImages: SavedPromptReferenceImage[] = [];
@@ -710,10 +724,19 @@ const App: React.FC = () => {
     try {
       setStatus({ isLoading: true, error: null, progress: 'Compressing images...' });
       
-      const compressedPreview = await compressImageBase64(previewImage);
       const compressedReference = await compressImageToJpegBase64(referenceImages.length > 0 ? referenceImages[0].image : null);
 
-      const previewUrl = compressedPreview ? await uploadImageToStorage(compressedPreview, 'webp') : null;
+      const stickerPreviewPng = stickerResult && !!generatedImage && generatedImage.startsWith('data:image/png');
+      let previewUrl: string | null;
+      if (stickerPreviewPng) {
+        previewUrl = await uploadImageToStorage(generatedImage, 'png');
+        if (!previewUrl) {
+          addNotification('error', 'Sticker preview could not be uploaded as PNG. The prompt will save without a new preview.');
+        }
+      } else {
+        const compressedPreview = await compressImageBase64(previewImage);
+        previewUrl = compressedPreview ? await uploadImageToStorage(compressedPreview, 'webp') : null;
+      }
       const referenceUrl = compressedReference ? await uploadImageToStorage(compressedReference, 'jpg') : null;
 
       const savedRefImages: SavedPromptReferenceImage[] = [];
@@ -803,11 +826,14 @@ const App: React.FC = () => {
         prompt: effectivePrompt,
         aspectRatio,
         imageSize,
-        model: selectedModel
+        model: selectedModel,
+        stickerMode: isStickerMode
       });
 
       let finalImage = resultImage;
-      if (overlayImage) {
+      if (isStickerMode) {
+        finalImage = await keyOutStickerBackground(resultImage);
+      } else if (overlayImage) {
         try {
           finalImage = await compositeOverlay(resultImage, overlayImage);
         } catch (e) {
@@ -816,6 +842,7 @@ const App: React.FC = () => {
       }
 
       setGeneratedImage(finalImage);
+      setStickerResult(isStickerMode);
       
       if (!activePromptId && (!activePromptName || !activePromptDescription)) {
         setStatus({ isLoading: true, error: null, progress: 'Generating suggested metadata...' });
@@ -847,6 +874,22 @@ const App: React.FC = () => {
   const handleDownload = () => {
     if (generatedImage) {
       try {
+        if (stickerResult) {
+          if (!generatedImage.startsWith('data:image/png')) {
+            throw new Error('Sticker download must be image/png bytes');
+          }
+          const pngBlob = base64ToBlob(generatedImage, 'image/png');
+          const objectUrl = URL.createObjectURL(pngBlob);
+          const link = document.createElement('a');
+          link.href = objectUrl;
+          link.download = stickerDownloadName(Date.now());
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(objectUrl);
+          addNotification('success', 'Download started.');
+          return;
+        }
         const link = document.createElement('a');
         link.href = generatedImage;
         link.download = `fun-frame-${Date.now()}.png`;
@@ -954,13 +997,30 @@ const App: React.FC = () => {
                     <span className="bg-app-bg w-6 h-6 sm:w-7 sm:h-7 rounded flex items-center justify-center text-xs font-mono text-app-accent border border-app-border flex-shrink-0">02</span>
                     Upload Images
                 </div>
-                <button
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    aria-pressed={isStickerMode}
+                    onClick={() => setIsStickerMode(!isStickerMode)}
+                    className={`px-2 py-1 text-[10px] font-mono uppercase rounded ${isStickerMode ? 'bg-app-accent text-white' : 'bg-app-surface text-app-muted border border-app-border'}`}
+                  >
+                    {isStickerMode ? 'Sticker: ON' : 'Sticker: OFF'}
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setIsBatchMode(!isBatchMode)}
                     className={`px-2 py-1 text-[10px] font-mono uppercase rounded ${isBatchMode ? 'bg-app-accent text-white' : 'bg-app-surface text-app-muted border border-app-border'}`}
-                >
+                  >
                     {isBatchMode ? 'Batch: ON' : 'Batch: OFF'}
-                </button>
+                  </button>
+                </div>
               </h2>
+              {isStickerMode && (
+                <p className="text-[11px] font-mono text-app-muted mb-3 leading-relaxed">
+                  Your prompt, references, and settings are sent as written. A flat green screen instruction is added after the theme, then removed here. Overlay is skipped. The result is a transparent PNG.
+                  {isBatchMode ? ' Batch still sends the prompt unchanged and does not cut out the green.' : ''}
+                </p>
+              )}
               <div className="space-y-4 w-full">
                 <ImageUpload 
                   label={isBatchMode ? "Select Folder / Images" : "Source Image"} 
@@ -1192,7 +1252,7 @@ const App: React.FC = () => {
                 Result
               </h2>
 
-              <div className="flex-grow flex items-center justify-center bg-app-bg rounded-lg border border-app-border relative overflow-hidden min-h-[260px] sm:min-h-[400px]">
+              <div className={`flex-grow flex items-center justify-center rounded-lg border border-app-border relative overflow-hidden min-h-[260px] sm:min-h-[400px] ${stickerResult ? 'sticker-checkerboard' : 'bg-app-bg'}`}>
                 {status.isLoading && (
                    <div className="absolute inset-0 z-20 bg-app-bg/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3 sm:gap-4 animate-fadeIn p-4 text-center">
                      <div className="w-10 h-10 sm:w-12 sm:h-12 border-2 border-app-accent border-t-transparent rounded-full animate-spin"></div>
@@ -1203,7 +1263,7 @@ const App: React.FC = () => {
                 {generatedImage ? (
                   <img 
                     src={generatedImage} 
-                    alt="Generated" 
+                    alt={stickerResult ? 'Generated sticker' : 'Generated'} 
                     className={`max-w-full max-h-[500px] sm:max-h-[600px] object-contain shadow-2xl transition-all duration-300 ${status.isLoading ? 'scale-95 opacity-50 blur-sm' : 'animate-fadeIn'}`} 
                   />
                 ) : (

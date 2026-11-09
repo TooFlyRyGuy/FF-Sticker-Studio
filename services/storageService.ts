@@ -8,12 +8,12 @@ export const initStorage = async () => {};
 
 export const uploadImageToStorage = async (
   base64DataUrl: string,
-  extension: 'webp' | 'jpg'
+  extension: 'webp' | 'jpg' | 'png'
 ): Promise<string | null> => {
   if (!base64DataUrl) return null;
 
   try {
-    const mimeType = extension === 'webp' ? 'image/webp' : 'image/jpeg';
+    const mimeType = extension === 'webp' ? 'image/webp' : extension === 'png' ? 'image/png' : 'image/jpeg';
     const content = base64DataUrl.includes(',') ? base64DataUrl.split(',')[1] : base64DataUrl;
     const byteCharacters = atob(content);
     const byteArray = new Uint8Array(byteCharacters.length);
