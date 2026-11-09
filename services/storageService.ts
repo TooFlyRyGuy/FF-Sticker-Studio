@@ -8,12 +8,12 @@ export const initStorage = async () => {};
 
 export const uploadImageToStorage = async (
   base64DataUrl: string,
-  extension: 'webp' | 'jpg'
+  extension: 'webp' | 'jpg' | 'png'
 ): Promise<string | null> => {
   if (!base64DataUrl) return null;
 
   try {
-    const mimeType = extension === 'webp' ? 'image/webp' : 'image/jpeg';
+    const mimeType = extension === 'webp' ? 'image/webp' : extension === 'png' ? 'image/png' : 'image/jpeg';
     const content = base64DataUrl.includes(',') ? base64DataUrl.split(',')[1] : base64DataUrl;
     const byteCharacters = atob(content);
     const byteArray = new Uint8Array(byteCharacters.length);
@@ -47,7 +47,7 @@ export const getPrompts = async (page: number = 0, limit: number = 24): Promise<
 
   const { data, error, count } = await supabase
     .from('prompts')
-    .select('id, name, description, category, prompt_text, preview_image_url, reference_strength, reference_images, is_active, usage_count, created_at, updated_at, tags, is_public, user_id', { count: 'exact' })
+    .select('id, name, description, category, prompt_text, preview_image_url, reference_strength, reference_images, is_active, usage_count, created_at, updated_at, tags, is_public, user_id, mode', { count: 'exact' })
     .order('updated_at', { ascending: false })
     .range(from, to);
 
@@ -61,7 +61,7 @@ export const getPrompts = async (page: number = 0, limit: number = 24): Promise<
 export const getAllPromptMetadata = async (): Promise<SavedPrompt[]> => {
   const { data, error } = await supabase
     .from('prompts')
-    .select('id, name, description, category, reference_strength, reference_images, is_active, usage_count, created_at, updated_at, tags, is_public, user_id')
+    .select('id, name, description, category, reference_strength, reference_images, is_active, usage_count, created_at, updated_at, tags, is_public, user_id, mode')
     .order('updated_at', { ascending: false })
     .limit(1000);
 

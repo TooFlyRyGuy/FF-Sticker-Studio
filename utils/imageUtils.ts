@@ -1,4 +1,5 @@
 import imageCompression from 'browser-image-compression';
+import { keyChromaGreen } from './stickerKey';
 
 /**
  * Converts a File object to a Base64 string.
@@ -116,6 +117,36 @@ export const compositeOverlay = async (
     overlayImg.onerror = () => reject(new Error('Failed to load overlay image'));
     baseImg.src = baseImageDataUrl;
     overlayImg.src = overlayDataUrl;
+  });
+};
+
+/**
+ * Remove the flat green sticker screen and return a PNG data URL with alpha.
+ * JPEG input is opaque; the alpha is created here, not by the model.
+ */
+export const keyOutStickerBackground = (imageUrl: string): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) {
+        reject(new Error('Failed to get canvas context'));
+        return;
+      }
+      ctx.drawImage(img, 0, 0);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const keyed = keyChromaGreen(imageData.data, canvas.width, canvas.height);
+      imageData.data.set(keyed);
+      ctx.putImageData(imageData, 0, 0);
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = () => {
+      reject(new Error('Failed to load sticker for background removal'));
+    };
+    img.src = imageUrl;
   });
 };
 

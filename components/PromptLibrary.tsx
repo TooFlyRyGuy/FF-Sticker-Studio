@@ -11,6 +11,7 @@ import {
   Image as ImageIcon
 } from 'lucide-react';
 import { Folder, SavedPrompt } from '../types';
+import { promptModeLabel } from '../utils/stickerKey';
 import { getFolders, saveFolder, deleteFolder, getAllPromptMetadata, getPromptPreviewImage, deletePrompt } from '../services/storageService';
 
 interface PromptLibraryProps {
@@ -49,8 +50,10 @@ const LazyPreviewImage: React.FC<{ promptId: string; hasPreview: boolean }> = ({
     return () => observer.disconnect();
   }, []);
 
+  const previewIsPng = !!imageUrl && /\.png($|\?)/i.test(imageUrl);
+
   return (
-    <div ref={containerRef} className="relative w-full h-full bg-app-bg overflow-hidden">
+    <div ref={containerRef} className={`relative w-full h-full overflow-hidden ${previewIsPng ? 'sticker-checkerboard' : 'bg-app-bg'}`}>
       {imageUrl ? (
         <img
           src={imageUrl}
@@ -491,9 +494,14 @@ const PromptLibrary: React.FC<PromptLibraryProps> = ({ isOpen, onClose, onSelect
 
                     <div className="p-3.5 sm:p-4 flex-1 flex flex-col justify-between">
                       <div>
-                        <h4 className="font-mono uppercase tracking-wider text-xs sm:text-sm font-bold text-white group-hover:text-app-accent transition-colors truncate mb-1">
-                          {prompt.name || 'Untitled Prompt'}
-                        </h4>
+                        <div className="flex items-center gap-2 mb-1">
+                          <h4 className="font-mono uppercase tracking-wider text-xs sm:text-sm font-bold text-white group-hover:text-app-accent transition-colors truncate">
+                            {prompt.name || 'Untitled Prompt'}
+                          </h4>
+                          <span className="flex-shrink-0 text-[9px] font-mono uppercase tracking-wider text-app-muted border border-app-border rounded px-1.5 py-0.5">
+                            {promptModeLabel(prompt.mode)}
+                          </span>
+                        </div>
                         <p className="text-xs text-app-text/90 line-clamp-2 sm:line-clamp-3 font-sans leading-relaxed mb-2.5">
                           {prompt.description || <span className="italic text-app-muted opacity-70">No description provided.</span>}
                         </p>
